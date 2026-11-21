@@ -3,14 +3,11 @@
 // @namespace    https://bondageprojects.com/
 // @version      0.1.0-beta
 // @description  Relationship-gated, local-only private appearance views for two Bondage Club players.
-// @match        https://www.bondageprojects.com/*
-// @match        https://bondageprojects.com/*
-// @match        https://www.bondage-europe.com/*
-// @match        https://bondage-europe.com/*
-// @match        https://www.bondage-asia.com/*
-// @match        https://bondage-asia.com/*
-// @match        https://www.bondageeurope.com/*
-// @match        https://bondageeurope.com/*
+// @match        https://*.bondageprojects.elementfx.com/R*
+// @match        https://*.bondageprojects.com/R*
+// @match        https://*.bondage-europe.com/R*
+// @match        https://*.bondageeurope.com/R*
+// @match        https://*.bondage-asia.com/club/*
 // @require      https://jomshir98.github.io/bondage-club-mod-sdk/bcmodsdk.js
 // @run-at       document-idle
 // @grant        none
