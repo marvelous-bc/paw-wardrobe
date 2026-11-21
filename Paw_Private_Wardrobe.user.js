@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.2.3-beta
-// @description  Private two-person appearances with explicit read-only viewing and full wardrobe studio.
+// @version      0.2.10-beta
+// @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
 // @match        https://*.bondage-europe.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.2.3
+ * Paw Private Wardrobe, beta 0.2.10
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -24,9 +24,10 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.2.3-beta';
+  const VERSION = '0.2.10-beta';
   const MARKER = 'PWRD1:';
-  const MAX_ITEMS = 160;
+  const MAX_ITEMS = 240;
+  const HIDE_ITEM = '@private-remove';
   const MAX_PACKET_BYTES = 120000;
   const CHUNK_SIZE = 480;
   const RETRY_MS = 60000;
@@ -127,7 +128,7 @@
 @media (max-width:920px){#pwr-studio .pwr-main{grid-template-columns:minmax(265px,40%) minmax(0,60%)}#pwr-studio .pwr-side{padding:12px}#pwr-studio .pwr-stage{padding:12px}}
 @media (max-width:700px){#pwr-studio{padding:4px}#pwr-studio .pwr-shell{height:99dvh;border-radius:13px}#pwr-studio .pwr-toolbar{padding:9px 11px}#pwr-studio .pwr-brand-icon{width:35px;height:35px;flex-basis:35px;font-size:20px}#pwr-studio h2{font-size:16px}#pwr-studio .pwr-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,43%) minmax(300px,57%)}#pwr-studio .pwr-stage{padding:9px;gap:6px;overflow-y:auto;scrollbar-width:thin}#pwr-studio .pwr-scene{flex:0 0 190px;min-height:190px}#pwr-studio .pwr-stage-title{display:none}#pwr-studio .pwr-backdrop-card{padding:8px}#pwr-studio .pwr-backdrop-row{gap:6px}#pwr-studio .pwr-backdrop-row select{max-width:200px;min-width:100px}#pwr-studio .pwr-background input[type=file]{max-width:120px}#pwr-studio .pwr-side{padding:9px;gap:7px}#pwr-studio .pwr-section{padding:8px}#pwr-studio .pwr-groups{max-height:90px}#pwr-studio .pwr-asset-grid{grid-auto-rows:minmax(54px,auto)}#pwr-studio .pwr-bottom{padding:8px 11px}#pwr-studio .pwr-top-actions button{min-height:32px;padding:7px 9px;font-size:11px}}
 
-/* Atelier v0.2.3: expandable sections, saved looks and hex wheel. */
+/* Atelier v0.2.4: expandable sections, saved looks and hex wheel. */
 #pwr-studio .pwr-details{display:block;min-width:0}
 #pwr-studio .pwr-details>summary{display:flex;align-items:center;gap:9px;list-style:none;cursor:pointer;user-select:none;min-height:26px}
 #pwr-studio .pwr-details>summary::-webkit-details-marker{display:none}
@@ -162,13 +163,90 @@
 #pwr-studio .pwr-asset-label{font-size:11px;line-height:1.2;overflow-wrap:anywhere}
 @media (max-width:700px){#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}#pwr-studio .pwr-preset-entry{grid-template-columns:minmax(0,1fr) auto}#pwr-studio .pwr-preset-entry .pwr-danger{grid-column:2}}
 
+/* v0.2.6 — readable asset names and mode-aware character closeups. */
+#pwr-studio .pwr-asset-visual{position:relative;overflow:hidden;width:100%;border-radius:10px;background:radial-gradient(ellipse at 50% 38%,#68517a,#281c33 82%);isolation:isolate;flex:0 0 auto}
+#pwr-studio .pwr-asset-visual canvas.pwr-asset-preview{width:100%;height:165px;display:block;border-radius:0;background:transparent!important;object-fit:contain}
+#pwr-studio .pwr-asset-visual.pwr-focus-hair canvas{height:194px}
+#pwr-studio .pwr-asset-visual.pwr-focus-body canvas{height:256px}
+#pwr-studio .pwr-asset-visual.pwr-focus-upper-body canvas,#pwr-studio .pwr-asset-visual.pwr-focus-lower-body canvas{height:192px}
+#pwr-studio .pwr-asset-raw-name{position:absolute;left:0;right:0;bottom:0;padding:7px 8px 6px;text-align:center;font-size:12px;font-weight:750;line-height:1.2;letter-spacing:.01em;color:#fff;overflow-wrap:anywhere;text-shadow:0 1px 4px #0c041c;background:linear-gradient(0deg,#140c1cf2,#140c1cbd 78%,#140c1c00);pointer-events:none;max-height:50%;overflow:hidden}
+#pwr-studio .pwr-asset-hint{font-size:11px;color:#ddcaed;line-height:1.22;min-height:0;text-align:center}
+#pwr-studio .pwr-asset.pwr-has-preview{min-height:0;justify-content:flex-start;padding:8px!important;gap:7px}
+#pwr-studio .pwr-asset.pwr-has-preview .pwr-asset-label{min-height:0;font-size:11px}
+#pwr-studio .pwr-preview-failed{display:block;position:absolute;top:33%;left:0;right:0;text-align:center;font-size:11px;color:#e4c6ef;pointer-events:none}
+#pwr-studio .pwr-preview-loading{display:grid;place-items:center;font-size:11px;color:#f0d4ff;min-height:100px}
+@media (max-width:700px){
+  #pwr-studio .pwr-asset-visual canvas.pwr-asset-preview{height:130px}
+  #pwr-studio .pwr-asset-visual.pwr-focus-hair canvas{height:170px}
+  #pwr-studio .pwr-asset-visual.pwr-focus-body canvas{height:220px}
+  #pwr-studio .pwr-asset-visual.pwr-focus-upper-body canvas,#pwr-studio .pwr-asset-visual.pwr-focus-lower-body canvas{height:165px}
+  #pwr-studio .pwr-asset-raw-name{font-size:10.5px;padding:5px 4px}
+}
+
+/* v0.2.4 — bigger, item-focused previews and a viewport-aware color tray. */
+#pwr-studio .pwr-assets-section{flex:0 0 auto;min-height:0;overflow:visible}
+#pwr-studio .pwr-assets-section>.pwr-section-body{min-height:0;overflow:visible}
+#pwr-studio .pwr-asset-grid{overflow:visible;flex:none;grid-auto-rows:auto;gap:10px;padding:3px 2px}
+#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}
+#pwr-studio .pwr-asset.pwr-has-preview{min-height:200px;padding:10px!important;gap:9px;justify-content:space-between}
+#pwr-studio .pwr-asset-preview{width:100%;height:165px;max-height:none;max-width:100%;object-fit:contain;object-position:center;display:block;border-radius:9px;background:radial-gradient(ellipse at 50% 38%,#665079,#281d33 80%)}
+#pwr-studio .pwr-asset .pwr-preview-placeholder{height:165px;width:100%;border-radius:9px;background:#24192d;display:grid;place-items:center;font-size:16px}
+#pwr-studio .pwr-asset-label{min-height:2.3em;display:grid;place-items:center;font-size:12px;font-weight:650;line-height:1.15;word-break:normal}
+#pwr-studio .pwr-asset-copy{display:grid;gap:2px;align-self:stretch}
+#pwr-studio .pwr-asset-title{display:grid;place-items:center;font-size:12px;font-weight:700;line-height:1.18;color:#f7efff;text-align:center;overflow-wrap:anywhere;min-height:1.2em}
+#pwr-studio .pwr-asset-sub{display:grid;place-items:center;font-size:10.5px;line-height:1.18;color:#cbb6d8;text-align:center;overflow-wrap:anywhere;opacity:.95;min-height:1.1em}
+#pwr-studio .pwr-asset.pwr-active{outline:1px solid #e7b5f7}
+#pwr-studio .pwr-asset-grid.pwr-with-previews .pwr-asset{overflow:hidden}
+#pwr-studio .pwr-preview-hint{color:#ceb4e1;font-size:11px;font-weight:550}
+/* Swatches MUST not inherit the global gradient button background. */
+#pwr-studio .pwr-swatch-grid button,#pwr-studio .pwr-swatch-grid button:hover,#pwr-studio .pwr-swatch-grid button:focus{
+  background:var(--pwr-swatch,#745083)!important;background-image:none!important;
+  border:1px solid #e0cbf2cc!important;box-shadow:inset 0 0 0 1px #160d22a6!important;
+  min-height:32px;padding:0!important;border-radius:7px;
+}
+#pwr-studio .pwr-swatch-grid button:hover{outline:2px solid #e5c0ff;outline-offset:1px;transform:none}
+#pwr-studio .pwr-swatch-heading{font-weight:750;color:#d8c5e5;margin-top:10px;font-size:11px;letter-spacing:.04em}
+/* Color controls are above the list, and the expanded editor floats ABOVE the item cards.
+   It is intentionally closed by default so it does not obscure item selection. */
+#pwr-studio .pwr-colors-section{position:sticky;top:0;z-index:100;flex:0 0 auto;
+  background:linear-gradient(125deg,#362344,#241b31);border-color:#9f71b9;
+  box-shadow:0 8px 22px #0b041ab8;overflow:visible}
+#pwr-studio .pwr-colors-section[open]{z-index:101}
+#pwr-studio .pwr-colors-section>.pwr-section-body{
+  position:fixed;top:max(88px,13dvh);right:max(20px,calc((100vw - 1480px)/2 + 25px));width:min(460px,calc(100vw - 28px));
+  max-height:min(69dvh,620px);overflow-y:auto;overscroll-behavior:contain;
+  background:#21172d;border:1px solid #a67bc0;border-radius:14px;
+  padding:12px;box-shadow:0 18px 45px #080311ed,0 0 0 1px #ffffff14;
+  scrollbar-color:#8b68a3 #22152e;z-index:102
+}
+#pwr-studio .pwr-colors-section:not([open])>.pwr-section-body{display:none}
+#pwr-studio .pwr-hex-picker{margin-top:7px}
+#pwr-studio .pwr-picker-close-row{display:flex;justify-content:flex-end;align-items:center;position:sticky;top:-12px;z-index:4;padding:4px 0 7px;background:#21172d}
+#pwr-studio .pwr-swatch-grid{grid-template-columns:repeat(8,minmax(0,1fr))}
+@media (max-width:700px){
+  #pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #pwr-studio .pwr-asset.pwr-has-preview{min-height:150px;padding:6px!important}
+  #pwr-studio .pwr-asset-preview,#pwr-studio .pwr-asset .pwr-preview-placeholder{height:115px}
+  #pwr-studio .pwr-asset-title{font-size:11px}
+  #pwr-studio .pwr-asset-sub{font-size:10px}
+  #pwr-studio .pwr-colors-section>.pwr-section-body{top:14dvh;right:12px;max-height:68dvh}
+}
+
+/* v0.2.10: keep image and both labels visible; never present empty cards silently. */
+#pwr-studio .pwr-asset-visual{position:relative;min-height:120px}
+#pwr-studio .pwr-asset-visual .pwr-preview-pending{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;color:#d6b7e8;font-size:12px;background:#261b32ba;pointer-events:none}
+#pwr-studio .pwr-asset-visual .pwr-preview-unavailable{color:#e3bbce;background:#251b30f2}
+#pwr-studio .pwr-asset-copy{padding:0 4px 3px}
+#pwr-studio .pwr-asset-title{font-size:13px}
+#pwr-studio .pwr-asset-sub{font-size:11px;color:#cfb6e0}
 @media (prefers-reduced-motion:reduce){#pwr-studio button,#pwr-studio input,#pwr-launcher{transition:none!important;transform:none!important}}
 `;
   const app = {
     ready: false, mod: null, enabled: true, allowPartnerEdits: true,
     selected: 0, panel: null, launcher: null, status: 'Starting...',
-    profiles: {}, outfits: {}, launcherPosition: null, sections: {slots:true,styles:true,colors:true,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, lastSent: new Map(), peers: new Map(),
+    profiles: {}, outfits: {}, launcherPosition: null, sections: {slots:true,styles:true,colors:false,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, thumbnailFocus: 'item', lastSent: new Map(), peers: new Map(),
     packets: new Map(), clones: new WeakMap(), generation: 1,
+    drawScope: 0, nativeDrawScope: 0, roomDrawHookAvailable: false, roomDrawHookSeen: false, roomDrawCalls: 0, privateDrawCalls: 0, nativeDrawSkips: 0, canvasHookCalls: 0, privateCanvasCalls: 0, canvasHookNames: [], nativeHookNames: [], renderReadyChecks: 0,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
     diagnostics: {dropped:[], lastEditSkipped:[], render:'not yet attempted', lastError:'', sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}},
   };
@@ -193,17 +271,37 @@
   const eligible = (id) => {
     const c = findChar(id); return !!(c && related(me(), c) && inRoom());
   };
+  // The catalog is independent of inventory ownership, shop Value, gender and
+  // regular item permission checks. This editor only paints detached replicas.
+  // Item groups are included as *visual-only gear*, not real equipped restraints.
   const assetGroups = (character) => {
     if (!character || typeof AssetGroup === 'undefined' || !Array.isArray(AssetGroup)) return [];
     const fam = character.AssetFamily || 'Female3DCG';
-    return AssetGroup.filter(g => g && g.Category === 'Appearance' && (!g.Family || g.Family === fam))
+    return AssetGroup.filter(g => g && (g.Category === 'Appearance' || g.Category === 'Item') &&
+      (!g.Family || g.Family === fam))
       .sort((a,b) => a.Name.localeCompare(b.Name));
   };
   const groupByName = (c, groupName) => assetGroups(c).find(g => g.Name === groupName);
+  const catalogCache = new WeakMap();
+  const groupAssets = group => {
+    if (!group) return [];
+    const gList = Array.isArray(group.Asset) ? group.Asset : [];
+    const globals = typeof Asset !== 'undefined' && Array.isArray(Asset) ? Asset : [];
+    const cached = catalogCache.get(group);
+    if (cached && cached.globalSize === globals.length && cached.groupSize === gList.length) return cached.assets;
+    const result = [...gList];
+    // Some addons register in the global registry before linking their group.
+    const known = new Set(result.map(a => a?.Name));
+    for (const a of globals) if (a?.Group?.Name === group.Name &&
+      (!a.Group.Family || !group.Family || a.Group.Family === group.Family) &&
+      a.Name && !known.has(a.Name)) {result.push(a);known.add(a.Name);}
+    const assets = result.filter(a => a && typeof a.Name === 'string');
+    catalogCache.set(group,{globalSize:globals.length,groupSize:gList.length,assets});
+    return assets;
+  };
   const assetByName = (c, g, assetName) => {
-    if (!g || !assetName) return null;
-    const list = Array.isArray(g.Asset) ? g.Asset : [];
-    let a = list.find(a => a && a.Name === assetName);
+    if (!g || !assetName || assetName === HIDE_ITEM) return null;
+    let a = groupAssets(g).find(a => a && a.Name === assetName);
     if (!a && typeof AssetGet === 'function') {
       try { a = AssetGet(c.AssetFamily || 'Female3DCG', g.Name, assetName); } catch (_) {}
     }
@@ -215,7 +313,8 @@
   };
   const snapshot = c => {
     if (!c || !Array.isArray(c.Appearance)) return [];
-    return c.Appearance.filter(it => it && it.Asset && it.Asset.Group && it.Asset.Group.Category === 'Appearance')
+    return c.Appearance.filter(it => it?.Asset?.Group &&
+      (it.Asset.Group.Category === 'Appearance' || it.Asset.Group.Category === 'Item'))
       .slice(0, MAX_ITEMS).map(it => ({group: it.Asset.Group.Name, asset: it.Asset.Name, color: colorString(it.Color)}));
   };
   // Normalize a *whole look* without letting stale/out-of-family addon records
@@ -231,15 +330,21 @@
       if (seen.has(raw.group)) { dropped.push(`${raw.group}: duplicate entry`); continue; }
       seen.add(raw.group);
       const group=groupByName(c,raw.group);
+      if (group?.Category === 'Item' && raw.asset === HIDE_ITEM) {
+        // A visual-only removal marker hides real equipment from the private
+        // drawing without modifying the character's actual item state.
+        result.push({group:group.Name,asset:HIDE_ITEM,color:'Default'});
+        continue;
+      }
       const asset=assetByName(c,group,raw.asset);
       if (!group || !asset || !group.Name || !asset.Name) {
-        dropped.push(`${raw.group}/${raw.asset}: unavailable in this client`);
+        dropped.push(`${raw.group}/${raw.asset}: missing catalog asset on this client`);
         continue;
       }
       result.push({group:group.Name,asset:asset.Name,color:colorString(raw.color)});
     }
     // Mandatory body groups are restored even if a stale saved profile omitted them.
-    for (const g of assetGroups(c)) if (!g.AllowNone && !result.some(it=>it.group===g.Name)) {
+    for (const g of assetGroups(c)) if (g.Category === 'Appearance' && !g.AllowNone && !result.some(it=>it.group===g.Name)) {
       const publicItem=(c.Appearance||[]).find(x=>x?.Asset?.Group?.Name===g.Name);
       const existing=publicItem && assetByName(c,g,publicItem.Asset.Name);
       // Public appearance may use a newer/addon-only mandatory body asset.
@@ -248,7 +353,7 @@
         dropped.push(`${g.Name}/${publicItem.Asset.Name}: retaining unregistered public body asset`);
         continue;
       }
-      const fallback=existing || (Array.isArray(g.Asset)?g.Asset.find(x=>x?.Name):null);
+      const fallback=existing || groupAssets(g)[0];
       if (fallback)result.push({group:g.Name,asset:fallback.Name,color:colorString(existing?publicItem.Color:g.ColorSchema?.[0])});
       else dropped.push(`${g.Name}: missing mandatory base asset`);
     }
@@ -276,16 +381,18 @@
     if (!records) return null;
     const recordGroups=new Set(records.map(r=>r.group));
     const supportedGroups=new Set(assetGroups(c).map(g=>g.Name));
-    // Keep item/restraint groups untouched. Also retain public appearance items
-    // with unknown addon groups/assets, so they do not silently disappear.
+    // Preserve real equipment unless the private look explicitly replaces or
+    // hides that group's drawing. No live character/inventory state is edited.
     const modified=(Array.isArray(c.Appearance)?c.Appearance:[]).filter(x=>{
-      if (!x?.Asset?.Group || x.Asset.Group.Category!=='Appearance')return true;
-      const g=x.Asset.Group.Name;
-      if (!supportedGroups.has(g))return true;
+      const g=x?.Asset?.Group?.Name,category=x?.Asset?.Group?.Category;
+      if (!g || !supportedGroups.has(g))return true;
+      if (category === 'Item') return !recordGroups.has(g);
+      if (category !== 'Appearance') return true;
       return !assetByName(c,groupByName(c,g),x.Asset.Name) && !recordGroups.has(g);
     });
-    const oldByGroup=new Map((c.Appearance||[]).filter(x=>x?.Asset?.Group?.Category==='Appearance').map(x=>[x.Asset.Group.Name,x]));
+    const oldByGroup=new Map((c.Appearance||[]).filter(x=>x?.Asset?.Group).map(x=>[x.Asset.Group.Name,x]));
     for (const record of records) {
+      if (record.asset === HIDE_ITEM) continue;
       const group=groupByName(c,record.group),asset=assetByName(c,group,record.asset);
       if (!asset)continue;
       modified.push(appearanceItem(asset,record.color,oldByGroup.get(record.group)));
@@ -311,13 +418,14 @@
         app.background = typeof saved.background === 'string' ? saved.background : 'violet';
         app.previewSize = [320,380,460,540,640].includes(saved.previewSize) ? saved.previewSize : 380;
         app.showThumbnails = saved.previewModeV3 ? saved.showThumbnails !== false : true;
+        app.thumbnailFocus = saved.thumbnailFocus === 'full' ? 'full' : 'item';
         app.customBackground = typeof saved.customBackground === 'string' && /^https:\/\//.test(saved.customBackground) ? saved.customBackground : '';
       }
     } catch (err) { console.warn('[Paw Private Wardrobe] Could not load settings:', err); }
   }
   function saveSettings() {
     if (!me()) return;
-    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,launcherPosition:app.launcherPosition,previewModeV3:true,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails})); }
+    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,launcherPosition:app.launcherPosition,previewModeV3:true,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails,thumbnailFocus:app.thumbnailFocus})); }
     catch(err) { console.warn('[Paw Private Wardrobe] Local save failed:',err); }
   }
   const currentPartner = () => {
@@ -343,6 +451,13 @@
   function refreshView() {
     invalidate();
     // DrawCharacter renders private clones on demand. Never sync actual BC appearance.
+    requestRoomRedraw();
+  }
+  function requestRoomRedraw() {
+    try { if (typeof AnimationRequestRefreshRate === 'function') AnimationRequestRefreshRate(30); } catch (_) {}
+    try { if (typeof AnimationRequestDraw === 'function') AnimationRequestDraw(); } catch (_) {}
+    try { if (typeof DrawProcess === 'function') DrawProcess(0); } catch (_) {}
+    try { if (typeof ChatRoomCharacterViewUpdate === 'function') ChatRoomCharacterViewUpdate(); } catch (_) {}
   }
   const syncSend = (target, payload) => {
     const sync=app.diagnostics.sync;
@@ -453,7 +568,7 @@
       sync.lastAck={from:sender,subject:payload.subject,ts:payload.ts,result:payload.result||'unknown',reason:payload.reason||'',at:Date.now()};
       if (['applied','up-to-date','staged'].includes(payload.result)) {
         sync.ackReceived++;
-        setStatus('Partner confirmed the private appearance ('+payload.result+').');
+        setStatus(payload.result==='staged'?'Partner received the look; live-room rendering not yet verified.':'Partner acknowledged the private look ('+payload.result+').');
       } else {
         sync.ackRejected++;
         sync.lastProblem='Partner did not apply private appearance: '+(payload.reason||payload.result||'unknown reason');
@@ -491,15 +606,15 @@
     const oldPeer=app.peers.get(sender)||{enabled:true,accept:true};
     app.peers.set(sender,{...oldPeer,at:Date.now()}); // Don't silently override permission settings.
     saveSettings();refreshView();
-    setStatus('Private appearance received and applied to the room view.');
-    ack('applied'); // The editor cannot hide incoming saved looks anymore.
+    setStatus('Private appearance received and stored; checking room renderer.');
+    ack('staged'); // Transfer succeeded; a real room draw is verified separately.
     if (app.studio?.remoteChanged) renderStudio();
     if(app.panel && app.panel.style.display!=='none')renderPanel();
   }
   function addHooks() {
     if (!globalThis.bcModSdk || typeof globalThis.bcModSdk.registerMod !== 'function') return false;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.3'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.10'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -511,15 +626,62 @@
         if (c && !c.__PawPrivateReplica) app.clones.delete(c);
         return result;
       });
+      // BC can leave DialogCharacter populated after closing a character menu.
+      // Scope room drawing to ChatRoomDrawCharacter when the current game build exposes it.
+      // The native interaction renderer is never given a private replica on unscoped focused item draws.
+      try {
+        app.mod.hookFunction('ChatRoomDrawCharacter', 10, (args,next) => {
+          app.roomDrawHookSeen = true;
+          app.roomDrawCalls++;
+          app.drawScope++;
+          try { return next(args); }
+          finally { app.drawScope--; }
+        });
+        app.roomDrawHookAvailable = true;
+      } catch(err) {
+        // Some BC versions expose character draws through a different function.
+        console.warn('[Paw Private Wardrobe] Room-scoped draw hook unavailable; using focused-item guard.',err);
+      }
+      // R133+ room views may render Character.Canvas directly, bypassing
+      // DrawCharacter. Intercept a known source canvas at the final draw call.
+      // Keep native dialog/item-zone rendering entirely separate.
+      for (const name of ['DialogDraw','DialogDrawCharacter','InventoryItemDraw']) {
+        try {
+          app.mod.hookFunction(name, 2, withNativeDrawScope);
+          app.nativeHookNames.push(name);
+        } catch(_) { /* Function absent in this BC build. */ }
+      }
+      for (const name of ['DrawCanvas','DrawImageCanvas','DrawImageEx']) {
+        try {
+          app.mod.hookFunction(name, 25, (args,next)=>{
+            app.canvasHookCalls++;
+            let prepared;
+            try {prepared=candidateCanvasReplacement(args);} catch(err) {
+              app.diagnostics.lastError='Canvas fallback: '+String(err);
+            }
+            return next(prepared||args);
+          });
+          app.canvasHookNames.push(name);
+        } catch(_) { /* Function absent in this BC build. */ }
+      }
       // A detached character clone is drawn instead of changing the live Appearance or Canvas.
       app.mod.hookFunction('DrawCharacter', 15, (args,next) => {
         const C=args[0];
         try {
-          if (app.enabled && C && member(C) && eligiblePartnerForCharacter(C) && !isNativeInteractionOpen()) {
+          if (app.enabled && C && member(C) && eligiblePartnerForCharacter(C)) {
+            const inRoomDraw = app.drawScope > 0;
+            if (!inRoomDraw && isNativeInteractionOpen()) {
+              app.nativeDrawSkips++;
+              return next(args); // Native item/zone UI needs the real character.
+            }
             const look=effectiveLook(C);
             if (look) {
-              const clone=getRenderClone(C,look);
-              if (clone && clone.Canvas) return next([clone,...args.slice(1)]);
+              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw);
+              if (clone && clone.Canvas) {
+                app.privateDrawCalls++;
+                app.diagnostics.render='private replica used in DrawCharacter';
+                return next([clone,...args.slice(1)]);
+              }
             }
           }
         } catch(err) {console.warn('[Paw Private Wardrobe] Render fallback to public:',err);}
@@ -528,18 +690,48 @@
       return true;
     } catch(err) {console.error('[Paw Private Wardrobe] Hook registration failed',err);return false;}
   }
-  // The outfit-only replica must NEVER enter the native dialog/equip views.
-  // Those views draw zone hitboxes and item controls based on live BC state.
+  // Only a focused item/slot is evidence of an active native interaction.
+  // DialogCharacter by itself is NOT evidence: BC can retain it while viewing the room.
+  // Checking DialogCharacter alone was the v0.2.3 regression that hid every saved look.
   function isNativeInteractionOpen() {
+    // DialogFocusItem/Group can persist after the dialog closes. Their mere
+    // presence must NOT disable room appearances. Only the active native
+    // drawing stack or a screen other than ChatRoom can suppress replacements.
     if (typeof CurrentScreen !== 'undefined' && CurrentScreen !== 'ChatRoom') return true;
-    if (typeof DialogCharacter !== 'undefined' && DialogCharacter) return true;
-    if (typeof DialogFocusItem !== 'undefined' && DialogFocusItem) return true;
-    if (typeof DialogFocusSourceItem !== 'undefined' && DialogFocusSourceItem) return true;
-    if (typeof DialogFocusGroup !== 'undefined' && DialogFocusGroup) return true;
-    // Some BC builds track a focused character in the dialog subsystem.
-    if (typeof DialogMenu !== 'undefined' && Array.isArray(DialogMenu) && DialogMenu.length &&
-        typeof DialogCharacter !== 'undefined' && DialogCharacter !== null) return true;
-    return false;
+    return app.nativeDrawScope > 0 && app.drawScope === 0;
+  }
+  function withNativeDrawScope(args,next) {
+    app.nativeDrawScope++;
+    try { return next(args); }
+    finally { app.nativeDrawScope--; }
+  }
+  function candidateCanvasReplacement(args) {
+    if (!app.enabled || !inRoom() || isNativeInteractionOpen()) return null;
+    // Some BC views draw the stored character canvases directly, without
+    // calling DrawCharacter. Never rewrite canvas data or actual Appearance;
+    // replace only the source-canvas argument for this single draw call.
+    const partner=currentPartner();
+    if (!partner) return null;
+    const targets=[me(),partner];
+    for(let i=0;i<Math.min(args.length,10);i++) {
+      const source=args[i];
+      if (!source || (typeof source!=='object' && typeof source!=='function')) continue;
+      for(const c of targets){
+        if(!c || !c.Canvas || (source!==c.Canvas && source!==c.CanvasBlink))continue;
+        const look=effectiveLook(c);
+        if(!look)continue;
+        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw);
+        if(!clone || !clone.Canvas)continue;
+        const replacement=source===c.CanvasBlink ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
+        if(!replacement || replacement===source)continue;
+        const updated=args.slice();
+        updated[i]=replacement;
+        app.privateCanvasCalls++;
+        app.diagnostics.render='private character canvas substituted for room draw';
+        return updated;
+      }
+    }
+    return null;
   }
   function eligiblePartnerForCharacter(c) {
     const p=currentPartner();
@@ -580,7 +772,18 @@
       }
       record.clone=replica;
       record.pending=false;
-      app.diagnostics.render='private replica prepared; live BC drawing not verified';
+      app.diagnostics.render='private replica prepared; waiting for room draw';
+      // Some BC renderers populate the canvas after CharacterLoadCanvas
+      // returns void. Request a small number of repaints to avoid a blank
+      // first frame; no changes to the public character are made.
+      let tries=0;
+      const verify=()=>{
+        if(cache.get(c)!==record || tries++>8)return;
+        app.renderReadyChecks++;
+        if (thumbnailCanvasReady(replica.Canvas)) {if(onReady)onReady();return;}
+        setTimeout(verify,160+tries*130);
+      };
+      setTimeout(verify,170);
       return replica;
     } catch (err) {
       record.pending=false;
@@ -605,8 +808,8 @@
   }
   function setStatus(text) {app.status=text;const el=document.getElementById('pwr-status');if(el)el.textContent=text;}
   const displayName = value => String(value||'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ');
-  const isClothes = g => !!g.Clothing;
-  const groupClass = g => g.Clothing ? 'Clothing' : /hair|eye|body|skin|mouth|nose|face|brow|breast|pupil|iris/i.test(g.Name) ? 'Body' : 'Accessories';
+  const isClothes = g => g.Category === 'Appearance' && !!g.Clothing;
+  const groupClass = g => g.Category === 'Item' ? 'Gear' : g.Clothing ? 'Clothing' : /hair|eye|body|skin|mouth|nose|face|brow|breast|pupil|iris/i.test(g.Name) ? 'Body' : 'Accessories';
   const backgrounds={
     violet:'linear-gradient(145deg,#45325f 0%,#77558e 55%,#1a1728 100%)',
     rose:'linear-gradient(140deg,#a96686 0%,#edb4bd 45%,#714969 100%)',
@@ -726,7 +929,7 @@
       app.selected=Number(v);app.editorSubject=0;saveSettings();refreshView();sendHello(app.selected,true);renderPanel();
     });
     const partner=currentPartner(),pid=member(partner),peer=app.peers.get(pid);
-    append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version==='0.2.3-beta'?'Both on 0.2.3 · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
+    append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version===VERSION?'Both on '+VERSION.replace('-beta','')+' · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
     checkbox(panel,'View private appearances (on my screen)',app.enabled,v=>{
       app.enabled=v;saveSettings();refreshView();syncSend(pid,{type:v?'HELLO':'DISABLED',enabled:v,accept:app.allowPartnerEdits,script:VERSION});renderPanel();
     });
@@ -743,7 +946,7 @@
     append(panel,node('p','The private wardrobe uses its own preview and background. Only Save & share updates the look your partner sees.','pwr-help'));
     append(panel,button('Reset floating button position',()=>{app.launcherPosition=null;saveSettings();applyLauncherPosition();},'pwr-secondary'));
     append(panel,node('div',app.status,'pwr-help'));panel.lastElementChild.id='pwr-status';
-    append(panel,node('p','Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
+    append(panel,node('p','Catalog items are visual-only; owning items or gender restrictions do not filter this studio. Missing sprites cannot be drawn. Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
   }
   // Work with the VISIBLE bounds of the BC character image, not the large
   // transparent margins of its off-screen drawing canvas. The result is cached
@@ -790,6 +993,83 @@
     }
     studioBoundsCache.set(source,{width,height,box});
     return box;
+  }
+  // Body, hair and accessories need different viewing windows. Using the
+  // difference versus a REMOVED mandatory Body slot gave invalid/blank renders;
+  // long hair could also extend a small head crop over the entire character.
+  function thumbnailMode(group) {
+    const name=String(group?.Name||'').toLowerCase().replace(/[^a-z]/g,'');
+    if (/^hair/.test(name)) return 'hair';
+    if (/^(body|bodytype|bodyshape|bodysize|bodyfull|skin|skincolor|height)$/.test(name)) return 'body';
+    if (/^(bodyupper|upperbody|breast|breasts|chest)$/.test(name)) return 'upper-body';
+    if (/^(bodylower|lowerbody|hips|pelvis)$/.test(name)) return 'lower-body';
+    return 'item';
+  }
+  function thumbnailBox(box,W,H,ratio=250/198) {
+    // Frame a chosen body region at the actual aspect ratio of its preview.
+    // Clamp only after fitting and keep the center of the subject in the view.
+    const bw=Math.max(1,Number(box.width)||1),bh=Math.max(1,Number(box.height)||1);
+    let width=Math.max(70,bw),height=Math.max(70,bh);
+    if (width/height<ratio)width=height*ratio;else height=width/ratio;
+    const shrink=Math.min(1,W/width,H/height);
+    width*=shrink;height*=shrink;
+    const cx=(Number(box.x)||0)+bw/2,cy=(Number(box.y)||0)+bh/2;
+    return {x:Math.max(0,Math.min(W-width,cx-width/2)),y:Math.max(0,Math.min(H-height,cy-height/2)),width,height};
+  }
+  function thumbnailFocusBounds(source,reference,group,ratio=250/198) {
+    const full=visibleStudioBounds(source);
+    const W=Number(source.width)||500,H=Number(source.height)||1000;
+    const name=String(group?.Name||'').toLowerCase();
+    const mode=thumbnailMode(group);
+    const frame=(x,y,w,h)=>thumbnailBox({x:full.x+full.width*x,y:full.y+full.height*y,
+      width:full.width*w,height:full.height*h},W,H,ratio);
+    // Intentional subject composition, not an auto-diff. Long hair often runs
+    // to the hips, but users need the style's bangs and silhouette at eye level.
+    if(mode==='hair')return /back|extension|long|rear/.test(name)
+      ?frame(.04,.005,.92,.67) : frame(.04,.005,.92,.46);
+    if(mode==='body')return thumbnailBox(full,W,H,ratio);
+    if(mode==='upper-body')return frame(.04,.16,.92,.53);
+    if(mode==='lower-body')return frame(.04,.47,.92,.5);
+    function fallback(){
+      if(/glass|eye|head|mouth|face|brow|mask|nose|gag|hat|ear/.test(name))return frame(.04,.025,.92,.36);
+      if(/shoe|boot|sock|foot|ankle/.test(name))return frame(.06,.74,.88,.25);
+      if(/pant|skirt|leg|kne(e|es)|thigh|lower/.test(name))return frame(.06,.47,.88,.48);
+      if(/bra|breast|neck|collar|arm|glove|upper|shirt|cloth|top/.test(name))return frame(.05,.23,.9,.44);
+      if(/hand|hold|item/.test(name))return frame(.05,.35,.9,.46);
+      return frame(.05,.25,.9,.49);
+    }
+    if(!reference || source===reference)return fallback();
+    try {
+      const tw=Math.min(240,W),th=Math.min(480,H);
+      const probe=document.createElement('canvas');probe.width=tw;probe.height=th;
+      const ctx=probe.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('no context');
+      ctx.drawImage(source,0,0,tw,th);const a=ctx.getImageData(0,0,tw,th).data;
+      ctx.clearRect(0,0,tw,th);ctx.drawImage(reference,0,0,tw,th);const b=ctx.getImageData(0,0,tw,th).data;
+      let x0=tw,y0=th,x1=-1,y1=-1,changed=0;
+      for(let y=0;y<th;y+=2)for(let x=0;x<tw;x+=2){
+        const n=(y*tw+x)*4,da=Math.abs(a[n+3]-b[n+3]);
+        const delta=Math.abs(a[n]-b[n])+Math.abs(a[n+1]-b[n+1])+Math.abs(a[n+2]-b[n+2]);
+        if(da<28 && delta<82)continue;
+        if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;changed++;
+      }
+      if(changed<4||x1<x0||y1<y0)return fallback();
+      const box={x:x0*W/tw,y:y0*H/th,width:Math.max(1,(x1-x0+2)*W/tw),height:Math.max(1,(y1-y0+2)*H/th)};
+      const dx=Math.max(20,box.width*.34),dy=Math.max(22,box.height*.31);
+      return thumbnailBox({x:box.x-dx,y:box.y-dy,width:box.width+2*dx,height:box.height+2*dy},W,H,ratio);
+    }catch(_){return fallback();}
+  }
+  function thumbnailCanvasReady(source) {
+    // BC can populate the Canvas asynchronously even when CharacterLoadCanvas
+    // itself returns void. Don't mark a transparent frame as successfully drawn.
+    try {
+      const probe=document.createElement('canvas');probe.width=36;probe.height=72;
+      const ctx=probe.getContext('2d',{willReadFrequently:true});
+      if(!ctx||!ctx.getImageData)return true; // non-readable contexts: best effort
+      ctx.drawImage(source,0,0,36,72);
+      const pixels=ctx.getImageData(0,0,36,72).data;
+      for(let i=3;i<pixels.length;i+=4)if(pixels[i]>4)return true;
+      return false;
+    }catch(_){return true;}
   }
   function drawStudioCanvas() {
     const st=app.studio;if(!st||!app.studioPanel||app.studioPanel.style.display==='none')return;
@@ -909,7 +1189,7 @@
     append(backdropCard,node('div','Fixed character size · preview scrolls instead of shrinking','pwr-help'));
     const side=node('div',undefined,'pwr-side');main.appendChild(side);
     const tabs=node('div',undefined,'pwr-tabs');
-    for(const tab of ['Clothing','Body','Accessories','All'])append(tabs,button(tab,()=>{app.editorTab=tab;app.editorPage=0;app.editorSearch='';app.editorGroup='';renderStudio();},'pwr-tab'+(app.editorTab===tab?' pwr-active':'')));
+    for(const tab of ['Clothing','Body','Accessories','Gear','All'])append(tabs,button(tab,()=>{app.editorTab=tab;app.editorPage=0;app.editorSearch='';app.editorGroup='';renderStudio();},'pwr-tab'+(app.editorTab===tab?' pwr-active':'')));
     append(side,tabs);
     let groups=assetGroups(c).filter(g=>app.editorTab==='All'||groupClass(g)===app.editorTab);
     if(!groups.length)groups=assetGroups(c);
@@ -921,7 +1201,8 @@
       const summary=node('summary');append(summary,node('span',n,'pwr-step'),node('h3',heading));append(section,summary);
       const body=node('div',undefined,'pwr-section-body');append(section,body);append(side,section);return {section,body};
     };
-    const slotSection=createFold('Choose an appearance slot','01','', 'slots').body;
+    const slotSection=createFold('Choose a private visual slot','01','', 'slots').body;
+    append(slotSection,node('div','Full BC catalog · no purchase or gender filtering · Gear is visual-only and does not equip real items.','pwr-help'));
     const groupGrid=node('div',undefined,'pwr-groups');
     for(const g of groups){
       const current=st.look.find(x=>x.group===g.Name);
@@ -932,7 +1213,8 @@
     if(!group)return;
     const assetSection=createFold('Choose '+displayName(group.Description||group.Name),'02','pwr-assets-section','styles').body;
     const chooseHeader=node('div',undefined,'pwr-head');
-    append(chooseHeader,node('span','Live item preview · click once to equip','pwr-help'));
+    append(chooseHeader,node('span','Catalog previews · click once to style privately','pwr-preview-hint'));
+    append(chooseHeader,button(app.thumbnailFocus==='item'?'Zoom: ITEM':'Zoom: FULL',()=>{app.thumbnailFocus=app.thumbnailFocus==='item'?'full':'item';saveSettings();renderStudio();},'pwr-secondary'));
     append(chooseHeader,button(app.showThumbnails?'Previews ON':'Previews OFF',()=>{app.showThumbnails=!app.showThumbnails;saveSettings();renderStudio();},'pwr-secondary'));
     append(assetSection,chooseHeader);
     const search=node('input');search.type='search';search.placeholder='Search styles in this slot…';search.value=app.editorSearch;
@@ -940,40 +1222,102 @@
     append(assetSection,search);
     const grid=node('div',undefined,'pwr-asset-grid');append(assetSection,grid);
     const pager=node('div',undefined,'pwr-row pwr-pager');append(assetSection,pager);
-    const current=st.look.find(r=>r.group===group.Name);
+    const current=st.look.find(r=>r.group===group.Name && r.asset !== HIDE_ITEM);
     let thumbIndex=0;
+    // Unlike the older "remove the whole group" baseline, the reference
+    // retains mandatory Body/Hair groups. Existing selected style is the
+    // comparison when available; otherwise use the original public slot.
+    const mode=thumbnailMode(group);
+    const publicSlot=snapshot(c).find(x=>x.group===group.Name);
+    const referenceLook=cloneJson(st.look);
+    if(!current && publicSlot && mode!=='item')referenceLook.push(publicSlot);
+    const referenceCache=new WeakMap();
+    // R134/R133: appearance canvases can become ready in stages, and some
+    // browsers populate their character sprites after CharacterLoadCanvas
+    // returns. Never mark a blank crop as a successful thumbnail.
+    function thumbHasPixels(canvas) {
+      try {
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        if(!ctx || !ctx.getImageData)return true;
+        const w=canvas.width,h=canvas.height;
+        const data=ctx.getImageData(0,0,w,h).data;
+        let pixels=0;
+        for(let i=3;i<data.length;i+=32)if(data[i]>12&&++pixels>12)return true;
+        return false;
+      }catch(_){return true;} // Protected canvas: drawing itself is best effort.
+    }
     function addTilePreview(tile,asset) {
       if(!app.showThumbnails)return;
       if(!asset){append(tile,node('div','✕ Remove','pwr-preview-placeholder'));return;}
       const look=cloneJson(st.look),i=look.findIndex(item=>item.group===group.Name);
       if(i>=0)look.splice(i,1);
       look.push({group:group.Name,asset:asset.Name,color:current?.color||'Default'});
-      const mini=node('canvas');mini.width=110;mini.height=160;mini.className='pwr-asset-preview';
+      const visual=node('div',undefined,'pwr-asset-visual pwr-focus-'+mode);
+      const mini=node('canvas');mini.width=250;
+      mini.height=mode==='body'?340:mode==='hair'?250:(mode==='upper-body'||mode==='lower-body')?240:198;
+      mini.className='pwr-asset-preview';mini.title='Preview '+asset.Name;
+      append(visual,mini);append(tile,visual);
+      const hint=node('div','Loading preview…','pwr-preview-pending');
+      append(visual,hint);
       const cache=new WeakMap();
-      let drawn=false;
-      const draw=()=>{
-        if(app.studio!==st||!mini.isConnected)return;
-        try{
-          const clone=getRenderClone(c,look,cache,draw),ctx=mini.getContext?.('2d');
-          if(ctx&&clone?.Canvas){
-            const b=visibleStudioBounds(clone.Canvas);
-            const scale=Math.min(100/b.width,154/b.height);
-            const w=b.width*scale,h=b.height*scale;
-            ctx.clearRect(0,0,110,160);
-            ctx.drawImage(clone.Canvas,b.x,b.y,b.width,b.height,(110-w)/2,(160-h)/2,w,h);
-            drawn=true;
-          }
-        }catch(err){/* keep item name if thumbnail cannot render */}
+      let drawn=false,tries=0,refreshes=0,stopped=false;
+      const canContinue=()=>app.studio===st && mini.isConnected && !stopped;
+      const schedule=(delay)=>{if(canContinue())setTimeout(draw,delay);};
+      const paint=(src,box)=>{
+        const ctx=mini.getContext?.('2d',{willReadFrequently:true});
+        if(!ctx||!box||box.width<=0||box.height<=0)return false;
+        const scale=Math.min(mini.width/box.width,mini.height/box.height);
+        const w=box.width*scale,h=box.height*scale;
+        ctx.clearRect(0,0,mini.width,mini.height);
+        ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+        ctx.drawImage(src,box.x,box.y,box.width,box.height,(mini.width-w)/2,(mini.height-h)/2,w,h);
+        return thumbHasPixels(mini);
       };
-      append(tile,mini);
-      // Stagger heavyweight BC canvases instead of drawing six full characters at once.
-      const delay=45*(thumbIndex++);
-      setTimeout(()=>{if(mini.isConnected&&app.studio===st){draw();if(!drawn)setTimeout(draw,220);}},delay);
+      const draw=()=>{
+        if(!canContinue())return;
+        let visible=false;
+        try {
+          const replica=getRenderClone(c,look,cache,draw);
+          const source=replica?.Canvas;
+          if(source && thumbnailCanvasReady(source)) {
+            // A failed/delayed reference should never prevent the candidate
+            // itself from appearing. Use slot-based framing until both render.
+            const same=current?.asset===asset.Name;
+            const referenceNeeded=app.thumbnailFocus==='item'&&mode==='item'&&!same;
+            const baseline=referenceNeeded?getRenderClone(c,referenceLook,referenceCache,draw):null;
+            const baseReady=!!baseline?.Canvas&&thumbnailCanvasReady(baseline.Canvas);
+            const focused=app.thumbnailFocus==='full'?visibleStudioBounds(source)
+              :thumbnailFocusBounds(source,baseReady?baseline.Canvas:null,group,mini.width/mini.height);
+            visible=paint(source,focused);
+            // Assets which extend beyond their slot or whose crop arrives
+            // partially loaded are retried using the full visible silhouette.
+            if(!visible)visible=paint(source,visibleStudioBounds(source));
+            if(!visible)visible=paint(source,{x:0,y:0,width:source.width,height:source.height});
+          }
+        }catch(err){
+          if(tries===0)console.debug('[Paw Private Wardrobe] Thumbnail retry:',group.Name,asset.Name,String(err));
+        }
+        if(visible){
+          hint.remove();drawn=true;
+          // One late refresh after the first nonblank drawing catches assets
+          // that load additional sprite layers asynchronously.
+          if(refreshes++<2)schedule(refreshes===1?700:1900);
+        }else if(tries++<16){
+          schedule(140+Math.min(tries*170,1200));
+        }else if(!drawn){
+          stopped=true;hint.textContent='Preview unavailable';
+          hint.classList.add('pwr-preview-unavailable');
+          hint.title='BC has not provided a drawable preview for this asset.';
+        }
+      };
+      // Throttle candidate renders to reduce stalls when selecting a catalog
+      // with many asset variants. Do not hide the labels while loading.
+      setTimeout(draw,120*(thumbIndex++));
     }
     function renderAssetGrid() {
-      const all=(Array.isArray(group.Asset)?group.Asset:[]).filter(a=>a?.Name);
+      const all=groupAssets(group).filter(a=>a?.Name);
       const filtered=all.filter(a=>`${a.Name} ${a.Description||''}`.toLowerCase().includes(app.editorSearch.toLowerCase()));
-      const assets=group.AllowNone?[null,...filtered]:filtered;
+      const assets=(group.AllowNone || group.Category === 'Item')?[null,...filtered]:filtered;
       const perPage=app.showThumbnails?6:12,total=Math.max(1,Math.ceil(assets.length/perPage));
       app.editorPage=Math.min(app.editorPage,total-1);
       grid.replaceChildren();grid.classList.toggle('pwr-with-previews',app.showThumbnails);
@@ -982,11 +1326,19 @@
         const tile=button('',()=>modifyStudio(list=>{
           const i=list.findIndex(r=>r.group===group.Name);if(i>=0)list.splice(i,1);
           if(asset)list.push({group:group.Name,asset:asset.Name,color:current?.color||'Default'});
+          else if(group.Category==='Item')list.push({group:group.Name,asset:HIDE_ITEM,color:'Default'});
         }),'pwr-asset'+(isChosen?' pwr-active':'')+(app.showThumbnails?' pwr-has-preview':''));
         tile.title=asset?.Name||'Remove this item';
         if(!app.showThumbnails||!asset)append(tile,node('span',asset?'◇':'✕','pwr-asset-icon'));
         addTilePreview(tile,asset);
-        append(tile,node('span',asset?displayName(asset.Description||asset.Name):'(None / Remove)','pwr-asset-label'));
+        const friendly=asset?.Description?displayName(asset.Description):'';
+        const readable=asset ? (friendly || displayName(asset.Name)) : '(None / Remove)';
+        const rawName=asset ? String(asset.Name) : 'Remove';
+        const copy=node('div',undefined,'pwr-asset-copy');
+        append(copy,node('span',readable,'pwr-asset-title'));
+        if(asset) append(copy,node('span',rawName,'pwr-asset-sub'));
+        else append(copy,node('span','Clear this slot','pwr-asset-sub'));
+        append(tile,copy);
         append(grid,tile);
       }
       pager.replaceChildren();
@@ -1015,8 +1367,13 @@
       append(actions,button('Load',()=>loadOutfitPreset(preset.id)),button('Rename',()=>renameOutfitPreset(preset.id,nameInput.value),'pwr-secondary'));
       append(entry,nameInput,actions,button('Delete',()=>deleteOutfitPreset(preset.id),'pwr-danger'));append(savedSection,entry);
     }
-    const colors=createFold('Color atelier · Hex picker','04','pwr-colors-section','colors').body;
-    const currentItem=st.look.find(r=>r.group===group.Name);
+    const colorFold=createFold('Color atelier · Hex picker · stays on top','04','pwr-colors-section','colors');
+    side.insertBefore(colorFold.section,tabs.nextSibling); // always accessible while scrolling
+    const colors=colorFold.body;
+    const colorClose=node('div',undefined,'pwr-picker-close-row');
+    append(colorClose,node('span','Color picker','pwr-help'),button('✕ Close picker',()=>{colorFold.section.open=false;app.sections.colors=false;},'pwr-secondary'));
+    append(colors,colorClose);
+    const currentItem=st.look.find(r=>r.group===group.Name && r.asset !== HIDE_ITEM);
     const selectedAsset=currentItem?assetByName(c,group,currentItem.asset):null;
     const colorableCount=Math.max(0,Math.min(20,Number(selectedAsset?.ColorableLayerCount??1)));
     if(!currentItem||!colorableCount){append(colors,node('p',!currentItem?'Choose an item in this slot before changing its colors.':'This asset has no colorable layers.','pwr-help'));}
@@ -1079,9 +1436,10 @@
       hue.addEventListener('input',()=>{hsv.h=Number(hue.value);syncHex();});
       hex.addEventListener('input',()=>{const val=cleanHex(hex.value);if(val){hsv=hsvFromHex(val);hue.value=String(Math.round(hsv.h));swatch.style.backgroundColor=val;drawPlane();}});
       append(hexBox,plane,hue);
+      append(hexBox,node('div','PRESET COLORS · click to select','pwr-swatch-heading'));
       const palettes=node('div',undefined,'pwr-swatch-grid');
       const palette=['#FFFFFF','#000000','#E4B7FF','#D86ECA','#AB68D2','#6F3E91','#FF9CC4','#E06666','#F6AB50','#F2DF75','#7DC77C','#4BA8A8','#7FC3EE','#4E73CE','#956655','#B9B9B9','#FADCDD','#C99282','#805AAF','#4D375F'];
-      for(const col of palette){const choice=button('',()=>{hsv=hsvFromHex(col);hue.value=String(Math.round(hsv.h));syncHex();});choice.style.backgroundColor=col;choice.title=col;choice.setAttribute('aria-label','Choose '+col);append(palettes,choice);}
+      for(const col of palette){const choice=button('',()=>{hsv=hsvFromHex(col);hue.value=String(Math.round(hsv.h));syncHex();});choice.style.setProperty('--pwr-swatch',col);choice.title=col;choice.setAttribute('aria-label','Choose '+col);append(palettes,choice);}
       append(hexBox,palettes);
       const apply=()=>{
         const valid=cleanHex(hex.value);
@@ -1111,7 +1469,7 @@
     })),button('Copy public look',()=>modifyStudio((list,character)=>list.splice(0,list.length,...snapshot(character))),'pwr-secondary'),
     button('Reset private look',clearPrivateLook,'pwr-danger'));
     const bottomTop=node('div',undefined,'pwr-bottom-top');append(bottomTop,node('span','QUICK ACTIONS','pwr-label-upper'));append(bottomTop,quick);append(bottom,bottomTop);
-    append(bottom,node('div','Save & share commits the private style. The live room NEVER displays an unfinished editor draft. This does not alter real BC clothes.','pwr-help'));
+    append(bottom,node('div','Save & share commits a visual-only look. Catalog access ignores gender/purchases, but missing gender-specific sprite art may not render. Public clothes, restraints, inventory, permissions, and interactions are never changed.','pwr-help'));
     drawStudioCanvas();
     // Asset images can become ready after CharacterLoadCanvas returns. Retry
     // against the *same* draft so the first click always schedules its preview.
@@ -1181,7 +1539,7 @@
     if(chosen && app.panel && app.panel.style.display!=='none') {
       // Avoid forcibly re-rendering text inputs while user is editing.
       const indicator=app.panel.querySelector('.pwr-badge');
-      if(indicator){const peer=app.peers.get(member(chosen));indicator.textContent=peer?.enabled?('Partner addon detected · '+(peer.version==='0.2.3-beta'?'Both on 0.2.3 · Viewing':'Partner '+(peer.version||'older beta')+' · update both accounts')):peer?'Partner has disabled private sharing':'Partner addon not yet detected';}
+      if(indicator){const peer=app.peers.get(member(chosen));indicator.textContent=peer?.enabled?('Partner addon detected · '+(peer.version===VERSION?'Both on '+VERSION.replace('-beta','')+' · Viewing':'Partner '+(peer.version||'older beta')+' · update both accounts')):peer?'Partner has disabled private sharing':'Partner addon not yet detected';}
     }
     if(!ps.length && (app.peers.size||Object.keys(app.remote).length||app.studio)) {app.peers.clear();app.remote={};if(app.studio)closeStudio();refreshView();}
   }
@@ -1198,11 +1556,21 @@
       studio(subject=member(me())){beginStudio(Number(subject));},
       closeStudio(){closeStudio();},
       status(){return {version:VERSION,ready:app.ready,selected:app.selected,enabled:app.enabled,mode:app.studio?'EDITING':'VIEWING',partnerDetected:!!app.peers.get(app.selected),partnerCount:partners().length,partnerVersion:app.peers.get(app.selected)?.version||null,render:app.diagnostics.render,skippedAssets:app.diagnostics.lastEditSkipped.length,lastAck:app.diagnostics.sync.lastAck};},
+      roomRenderStatus() {
+        const p=currentPartner();
+        return {version:VERSION,screen:typeof CurrentScreen!=='undefined'?CurrentScreen:'unknown',
+          partner:p?.MemberNumber||null,hasSavedLook:!!(p&&effectiveLook(p)),
+          localHasSavedLook:!!(me()&&effectiveLook(me())),
+          privateDrawCharacter:app.privateDrawCalls,privateDrawCanvas:app.privateCanvasCalls,
+          drawCanvasCalls:app.canvasHookCalls,roomDrawCalls:app.roomDrawCalls,
+          nativeDrawSkips:app.nativeDrawSkips,render:app.diagnostics.render,
+          hookCoverage:{canvas:app.canvasHookNames,native:app.nativeHookNames}};
+      },
       diagnostics(){
         const p=currentPartner(),sub=app.studio?.subject||member(me()),c=findChar(sub);
         const look=app.studio?.look || snapshot(c);
         const checked=normalizeLook(c,look);
-        return {version:VERSION,subject:sub,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).length,draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,launcherPosition:app.launcherPosition,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,interactionGuard:isNativeInteractionOpen()};
+        return {version:VERSION,subject:sub,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
       },
       refresh(){refreshView();},
       savedOutfits(){return app.studio?savedOutfitsFor(app.studio).map(x=>({id:x.id,name:x.name,savedAt:x.savedAt})):[];},
