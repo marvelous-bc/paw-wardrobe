@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.2.2-beta
+// @version      0.2.3-beta
 // @description  Private two-person appearances with explicit read-only viewing and full wardrobe studio.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.2.2
+ * Paw Private Wardrobe, beta 0.2.3
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -24,16 +24,18 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.2.2-beta';
+  const VERSION = '0.2.3-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 160;
   const MAX_PACKET_BYTES = 120000;
   const CHUNK_SIZE = 480;
   const RETRY_MS = 60000;
+  const MAX_SAVED_OUTFITS = 30;
   const SAFE_COLOR = /^(?:#[\da-fA-F]{3,8}|[\w ,.#()-]{1,80})$/;
   const style = `
 /* Paw Private Wardrobe – Moonlit Atelier */
-#pwr-launcher{position:fixed;z-index:2147483000;right:18px;bottom:112px;padding:12px 17px;border-radius:999px;border:1px solid #d4a5f0;background:linear-gradient(120deg,#513071,#9251a4);color:#fff;font:700 13px/1.3 system-ui,-apple-system,sans-serif;box-shadow:0 9px 24px #11071bc0, inset 0 1px #ffffff38;cursor:pointer;transition:transform .16s,box-shadow .16s}
+#pwr-launcher{position:fixed;z-index:2147483000;right:18px;bottom:112px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;padding:12px 17px;border-radius:999px;border:1px solid #d4a5f0;background:linear-gradient(120deg,#513071,#9251a4);color:#fff;font:700 13px/1.3 system-ui,-apple-system,sans-serif;box-shadow:0 9px 24px #11071bc0, inset 0 1px #ffffff38;cursor:pointer;transition:transform .16s,box-shadow .16s}
+#pwr-launcher.pwr-dragging{cursor:grabbing;transform:none!important;opacity:.93}
 #pwr-launcher:hover{transform:translateY(-2px);box-shadow:0 13px 29px #100716dc, inset 0 1px #ffffff50}
 #pwr-window,#pwr-studio{box-sizing:border-box;color:#f8f3ff;font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.01em}
 #pwr-window *,#pwr-studio *{box-sizing:border-box}
@@ -124,12 +126,48 @@
 #pwr-studio .pwr-pale button{font-size:12px}
 @media (max-width:920px){#pwr-studio .pwr-main{grid-template-columns:minmax(265px,40%) minmax(0,60%)}#pwr-studio .pwr-side{padding:12px}#pwr-studio .pwr-stage{padding:12px}}
 @media (max-width:700px){#pwr-studio{padding:4px}#pwr-studio .pwr-shell{height:99dvh;border-radius:13px}#pwr-studio .pwr-toolbar{padding:9px 11px}#pwr-studio .pwr-brand-icon{width:35px;height:35px;flex-basis:35px;font-size:20px}#pwr-studio h2{font-size:16px}#pwr-studio .pwr-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,43%) minmax(300px,57%)}#pwr-studio .pwr-stage{padding:9px;gap:6px;overflow-y:auto;scrollbar-width:thin}#pwr-studio .pwr-scene{flex:0 0 190px;min-height:190px}#pwr-studio .pwr-stage-title{display:none}#pwr-studio .pwr-backdrop-card{padding:8px}#pwr-studio .pwr-backdrop-row{gap:6px}#pwr-studio .pwr-backdrop-row select{max-width:200px;min-width:100px}#pwr-studio .pwr-background input[type=file]{max-width:120px}#pwr-studio .pwr-side{padding:9px;gap:7px}#pwr-studio .pwr-section{padding:8px}#pwr-studio .pwr-groups{max-height:90px}#pwr-studio .pwr-asset-grid{grid-auto-rows:minmax(54px,auto)}#pwr-studio .pwr-bottom{padding:8px 11px}#pwr-studio .pwr-top-actions button{min-height:32px;padding:7px 9px;font-size:11px}}
+
+/* Atelier v0.2.3: expandable sections, saved looks and hex wheel. */
+#pwr-studio .pwr-details{display:block;min-width:0}
+#pwr-studio .pwr-details>summary{display:flex;align-items:center;gap:9px;list-style:none;cursor:pointer;user-select:none;min-height:26px}
+#pwr-studio .pwr-details>summary::-webkit-details-marker{display:none}
+#pwr-studio .pwr-details>summary:after{content:'▾';margin-left:auto;color:#d2b7e5;transition:transform .15s}
+#pwr-studio .pwr-details:not([open])>summary:after{transform:rotate(-90deg)}
+#pwr-studio .pwr-details>.pwr-section-body{margin-top:10px}
+#pwr-studio .pwr-saved-section{border-color:#836098;background:linear-gradient(155deg,#2b1d3a,#231a31)}
+#pwr-studio .pwr-preset-entry{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:8px;border:1px solid #554063;border-radius:11px;margin-top:7px;background:#1c1526}
+#pwr-studio .pwr-preset-entry input{min-width:0;height:35px!important}
+#pwr-studio .pwr-preset-entry button{padding:7px 9px;min-height:33px}
+#pwr-studio .pwr-preset-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#pwr-studio .pwr-preset-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#pwr-studio .pwr-preset-row input{flex:1;min-width:140px}
+#pwr-studio .pwr-colorbar{align-items:flex-start}
+#pwr-studio .pwr-hex-picker{border:1px solid #85619d;border-radius:13px;background:#191122;padding:11px;margin-top:11px}
+#pwr-studio .pwr-hex-head{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+#pwr-studio .pwr-hex-chip{display:inline-block;width:31px;height:31px;border-radius:9px;border:2px solid #f7dcff;box-shadow:0 0 0 1px #6a4c7b}
+#pwr-studio .pwr-sv-canvas{display:block;width:100%;height:130px;touch-action:none;cursor:crosshair;border-radius:10px;border:1px solid #9577ae;margin-top:10px}
+#pwr-studio .pwr-hue{width:100%;height:18px;accent-color:#ac67ca;cursor:pointer;margin-top:12px;appearance:none;background:linear-gradient(to right,red,#ff0,lime,cyan,blue,magenta,red);border-radius:99px;border:1px solid #cba4dd}
+#pwr-studio .pwr-hue::-webkit-slider-thumb{appearance:none;width:17px;height:23px;background:#fff;border:2px solid #654376;border-radius:7px}
+#pwr-studio .pwr-hue::-moz-range-thumb{width:15px;height:21px;background:#fff;border:2px solid #654376;border-radius:7px}
+#pwr-studio .pwr-swatch-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:10px}
+#pwr-studio .pwr-swatch-grid button{min-width:0;min-height:27px;padding:0;border:1px solid #e0cbf2ad;border-radius:7px;box-shadow:inset 0 0 0 1px #140b1980}
+#pwr-studio .pwr-layers{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
+#pwr-studio .pwr-layer{padding:6px 10px!important;min-height:30px!important;font-size:12px!important}
+#pwr-studio .pwr-layer.pwr-active{outline:2px solid #efb9ff;border-color:#efb9ff}
+#pwr-studio .pwr-color-buttons{display:flex;align-items:center;gap:7px;margin-top:10px;flex-wrap:wrap}
+#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(3,minmax(0,1fr))}
+#pwr-studio .pwr-asset.pwr-has-preview{min-height:154px;gap:5px}
+#pwr-studio .pwr-asset-preview{height:120px;max-height:120px;width:auto;max-width:100%;margin:0 auto;object-fit:contain}
+#pwr-studio .pwr-asset .pwr-preview-placeholder{height:120px;display:grid;place-items:center;color:#bda0cb;font-size:11px}
+#pwr-studio .pwr-asset-label{font-size:11px;line-height:1.2;overflow-wrap:anywhere}
+@media (max-width:700px){#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}#pwr-studio .pwr-preset-entry{grid-template-columns:minmax(0,1fr) auto}#pwr-studio .pwr-preset-entry .pwr-danger{grid-column:2}}
+
 @media (prefers-reduced-motion:reduce){#pwr-studio button,#pwr-studio input,#pwr-launcher{transition:none!important;transform:none!important}}
 `;
   const app = {
     ready: false, mod: null, enabled: true, allowPartnerEdits: true,
     selected: 0, panel: null, launcher: null, status: 'Starting...',
-    profiles: {}, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: false, lastSent: new Map(), peers: new Map(),
+    profiles: {}, outfits: {}, launcherPosition: null, sections: {slots:true,styles:true,colors:true,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, lastSent: new Map(), peers: new Map(),
     packets: new Map(), clones: new WeakMap(), generation: 1,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
     diagnostics: {dropped:[], lastEditSkipped:[], render:'not yet attempted', lastError:'', sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}},
@@ -258,7 +296,7 @@
   function loadSettings() {
     const id = member(me()); if (!id || id === app.lastAccount) return;
     app.lastAccount = id;
-    app.profiles = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap();
+    app.profiles = {}; app.outfits = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap();
     app.diagnostics={dropped:[],lastEditSkipped:[],render:'not yet attempted',lastError:'',sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}};
     app.lastSent.clear(); app.packets.clear(); app.studio=null; app.studioClones=new WeakMap();
     try {
@@ -268,16 +306,18 @@
         app.allowPartnerEdits = saved.allowPartnerEdits !== false && saved.allowOwnerEdits !== false;
         app.selected = Number.isInteger(saved.selected) ? saved.selected : 0;
         app.profiles = saved.profiles && typeof saved.profiles === 'object' ? saved.profiles : {};
+        app.outfits = saved.outfits && typeof saved.outfits === 'object' && !Array.isArray(saved.outfits) ? saved.outfits : {};
+        app.launcherPosition = saved.launcherPosition && Number.isFinite(saved.launcherPosition.x) && Number.isFinite(saved.launcherPosition.y) ? saved.launcherPosition : null;
         app.background = typeof saved.background === 'string' ? saved.background : 'violet';
         app.previewSize = [320,380,460,540,640].includes(saved.previewSize) ? saved.previewSize : 380;
-        app.showThumbnails = saved.showThumbnails === true;
+        app.showThumbnails = saved.previewModeV3 ? saved.showThumbnails !== false : true;
         app.customBackground = typeof saved.customBackground === 'string' && /^https:\/\//.test(saved.customBackground) ? saved.customBackground : '';
       }
     } catch (err) { console.warn('[Paw Private Wardrobe] Could not load settings:', err); }
   }
   function saveSettings() {
     if (!me()) return;
-    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails})); }
+    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,launcherPosition:app.launcherPosition,previewModeV3:true,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails})); }
     catch(err) { console.warn('[Paw Private Wardrobe] Local save failed:',err); }
   }
   const currentPartner = () => {
@@ -459,7 +499,7 @@
   function addHooks() {
     if (!globalThis.bcModSdk || typeof globalThis.bcModSdk.registerMod !== 'function') return false;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.2'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.3'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -475,7 +515,7 @@
       app.mod.hookFunction('DrawCharacter', 15, (args,next) => {
         const C=args[0];
         try {
-          if (app.enabled && C && member(C) && eligiblePartnerForCharacter(C)) {
+          if (app.enabled && C && member(C) && eligiblePartnerForCharacter(C) && !isNativeInteractionOpen()) {
             const look=effectiveLook(C);
             if (look) {
               const clone=getRenderClone(C,look);
@@ -487,6 +527,19 @@
       });
       return true;
     } catch(err) {console.error('[Paw Private Wardrobe] Hook registration failed',err);return false;}
+  }
+  // The outfit-only replica must NEVER enter the native dialog/equip views.
+  // Those views draw zone hitboxes and item controls based on live BC state.
+  function isNativeInteractionOpen() {
+    if (typeof CurrentScreen !== 'undefined' && CurrentScreen !== 'ChatRoom') return true;
+    if (typeof DialogCharacter !== 'undefined' && DialogCharacter) return true;
+    if (typeof DialogFocusItem !== 'undefined' && DialogFocusItem) return true;
+    if (typeof DialogFocusSourceItem !== 'undefined' && DialogFocusSourceItem) return true;
+    if (typeof DialogFocusGroup !== 'undefined' && DialogFocusGroup) return true;
+    // Some BC builds track a focused character in the dialog subsystem.
+    if (typeof DialogMenu !== 'undefined' && Array.isArray(DialogMenu) && DialogMenu.length &&
+        typeof DialogCharacter !== 'undefined' && DialogCharacter !== null) return true;
+    return false;
   }
   function eligiblePartnerForCharacter(c) {
     const p=currentPartner();
@@ -579,7 +632,7 @@
   }
   function closeStudio() {
     if(app.studioResizeObserver){app.studioResizeObserver.disconnect();app.studioResizeObserver=null;}
-    app.studio=null;app.studioClones=new WeakMap();app.studioFit=null;
+    app.studio=null;app.studioClones=new WeakMap();app.studioFit=null;app.studioDrawTicket++;
     if(app.studioPanel)app.studioPanel.style.display='none';
     refreshView(); if(app.panel?.style.display!=='none')renderPanel();
   }
@@ -623,6 +676,42 @@
     const sent=sendState(pid,subject,look,changed);
     setStatus(sent?'Private look saved and sent; awaiting acknowledgment.':'Saved locally but partner delivery is unavailable.');
   }
+  function savedOutfitsFor(st) {
+    const k=key(st.partner,st.subject);
+    return Array.isArray(app.outfits[k]) ? app.outfits[k] : [];
+  }
+  function saveOutfitPreset(name) {
+    const st=app.studio;if(!st)return false;
+    const c=findChar(st.subject),valid=validateLook(c,st.look);
+    if(!valid)return false;
+    const k=key(st.partner,st.subject),list=savedOutfitsFor(st).slice();
+    if(list.length>=MAX_SAVED_OUTFITS){setStatus('Maximum '+MAX_SAVED_OUTFITS+' saved outfits for this person. Remove one first.');return false;}
+    const raw=String(name||'').trim().slice(0,60);
+    const title=raw||'Outfit '+new Date().toLocaleString();
+    list.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:title,look:cloneJson(valid),savedAt:Date.now()});
+    app.outfits[k]=list;saveSettings();setStatus('Saved private outfit preset: '+title);renderStudio();return true;
+  }
+  function loadOutfitPreset(id) {
+    const st=app.studio;if(!st)return;
+    const entry=savedOutfitsFor(st).find(x=>x?.id===id);
+    if(!entry||!Array.isArray(entry.look))return;
+    modifyStudio(list=>list.splice(0,list.length,...cloneJson(entry.look)));
+    setStatus('Loaded preset into your draft. Press Save & share to send it.');
+  }
+  function renameOutfitPreset(id,name) {
+    const st=app.studio;if(!st)return;
+    const entry=savedOutfitsFor(st).find(x=>x?.id===id);
+    const title=String(name||'').trim().slice(0,60);
+    if(!entry||!title)return;
+    entry.name=title;saveSettings();setStatus('Renamed outfit preset.');renderStudio();
+  }
+  function deleteOutfitPreset(id) {
+    const st=app.studio;if(!st)return;
+    const k=key(st.partner,st.subject),list=savedOutfitsFor(st);
+    const entry=list.find(x=>x?.id===id);if(!entry)return;
+    if(!confirm('Delete private outfit preset "'+String(entry.name||'').replace(/["\\]/g,'')+'"?'))return;
+    app.outfits[k]=list.filter(x=>x?.id!==id);saveSettings();setStatus('Outfit preset deleted.');renderStudio();
+  }
   function renderPanel() {
     const panel=app.panel;if(!panel||panel.style.display==='none')return;
     panel.replaceChildren();
@@ -637,7 +726,7 @@
       app.selected=Number(v);app.editorSubject=0;saveSettings();refreshView();sendHello(app.selected,true);renderPanel();
     });
     const partner=currentPartner(),pid=member(partner),peer=app.peers.get(pid);
-    append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version==='0.2.2-beta'?'Both on 0.2.2 · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
+    append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version==='0.2.3-beta'?'Both on 0.2.3 · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
     checkbox(panel,'View private appearances (on my screen)',app.enabled,v=>{
       app.enabled=v;saveSettings();refreshView();syncSend(pid,{type:v?'HELLO':'DISABLED',enabled:v,accept:app.allowPartnerEdits,script:VERSION});renderPanel();
     });
@@ -652,6 +741,7 @@
     append(targets,button('Style myself',()=>beginStudio(member(me())),''),stylePartner);
     append(panel,targets);
     append(panel,node('p','The private wardrobe uses its own preview and background. Only Save & share updates the look your partner sees.','pwr-help'));
+    append(panel,button('Reset floating button position',()=>{app.launcherPosition=null;saveSettings();applyLauncherPosition();},'pwr-secondary'));
     append(panel,node('div',app.status,'pwr-help'));panel.lastElementChild.id='pwr-status';
     append(panel,node('p','Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
   }
@@ -711,8 +801,8 @@
       const clone=getRenderClone(c,st.look,app.studioClones,()=>{
         if(app.studio===st)drawStudioCanvas();
       });
-      const source=clone?.Canvas||c.Canvas;
-      if(!source)return;
+      const source=clone?.Canvas;
+      if(!source)return; // Don't flash public outfit while the first private drawing is loading.
       // FIXED character silhouette size in CSS pixels, independent of the
       // editor size. A smaller preview is scrollable instead of cropping.
       const b=visibleStudioBounds(source);
@@ -824,10 +914,14 @@
     let groups=assetGroups(c).filter(g=>app.editorTab==='All'||groupClass(g)===app.editorTab);
     if(!groups.length)groups=assetGroups(c);
     if(!groups.some(g=>g.Name===app.editorGroup))app.editorGroup=groups[0]?.Name||'';
-    const slotSection=node('div',undefined,'pwr-section');
-    const slotHeading=node('div',undefined,'pwr-section-top');
-    append(slotHeading,node('span','01','pwr-step'),node('h3','Choose an appearance slot'));
-    append(slotSection,slotHeading);append(side,slotSection);
+    const createFold=(heading,n,sectionClass,which)=>{
+      const section=node('details',undefined,'pwr-section pwr-details '+(sectionClass||''));
+      section.open=app.sections[which]!==false;
+      section.addEventListener('toggle',()=>{app.sections[which]=section.open;});
+      const summary=node('summary');append(summary,node('span',n,'pwr-step'),node('h3',heading));append(section,summary);
+      const body=node('div',undefined,'pwr-section-body');append(section,body);append(side,section);return {section,body};
+    };
+    const slotSection=createFold('Choose an appearance slot','01','', 'slots').body;
     const groupGrid=node('div',undefined,'pwr-groups');
     for(const g of groups){
       const current=st.look.find(x=>x.group===g.Name);
@@ -836,11 +930,9 @@
     append(slotSection,groupGrid);
     const group=groupByName(c,app.editorGroup);
     if(!group)return;
-    const assetSection=node('div',undefined,'pwr-section pwr-assets-section');append(side,assetSection);
+    const assetSection=createFold('Choose '+displayName(group.Description||group.Name),'02','pwr-assets-section','styles').body;
     const chooseHeader=node('div',undefined,'pwr-head');
-    const chooseTitle=node('div',undefined,'pwr-section-top');
-    append(chooseTitle,node('span','02','pwr-step'),node('h3',`Choose ${displayName(group.Description||group.Name)}`));
-    append(chooseHeader,chooseTitle);
+    append(chooseHeader,node('span','Live item preview · click once to equip','pwr-help'));
     append(chooseHeader,button(app.showThumbnails?'Previews ON':'Previews OFF',()=>{app.showThumbnails=!app.showThumbnails;saveSettings();renderStudio();},'pwr-secondary'));
     append(assetSection,chooseHeader);
     const search=node('input');search.type='search';search.placeholder='Search styles in this slot…';search.value=app.editorSearch;
@@ -849,21 +941,34 @@
     const grid=node('div',undefined,'pwr-asset-grid');append(assetSection,grid);
     const pager=node('div',undefined,'pwr-row pwr-pager');append(assetSection,pager);
     const current=st.look.find(r=>r.group===group.Name);
+    let thumbIndex=0;
     function addTilePreview(tile,asset) {
-      if(!app.showThumbnails||!asset)return;
+      if(!app.showThumbnails)return;
+      if(!asset){append(tile,node('div','✕ Remove','pwr-preview-placeholder'));return;}
       const look=cloneJson(st.look),i=look.findIndex(item=>item.group===group.Name);
       if(i>=0)look.splice(i,1);
       look.push({group:group.Name,asset:asset.Name,color:current?.color||'Default'});
-      const mini=node('canvas');mini.width=100;mini.height=200;mini.className='pwr-asset-preview';
+      const mini=node('canvas');mini.width=110;mini.height=160;mini.className='pwr-asset-preview';
       const cache=new WeakMap();
+      let drawn=false;
       const draw=()=>{
-        if(!app.studio||app.studio!==st||!mini.parent)return;
+        if(app.studio!==st||!mini.isConnected)return;
         try{
           const clone=getRenderClone(c,look,cache,draw),ctx=mini.getContext?.('2d');
-          if(ctx&&clone?.Canvas){ctx.clearRect(0,0,100,200);ctx.drawImage(clone.Canvas,0,0,100,200);}
-        }catch(err){/* keep asset text usable if an individual preview cannot render */}
+          if(ctx&&clone?.Canvas){
+            const b=visibleStudioBounds(clone.Canvas);
+            const scale=Math.min(100/b.width,154/b.height);
+            const w=b.width*scale,h=b.height*scale;
+            ctx.clearRect(0,0,110,160);
+            ctx.drawImage(clone.Canvas,b.x,b.y,b.width,b.height,(110-w)/2,(160-h)/2,w,h);
+            drawn=true;
+          }
+        }catch(err){/* keep item name if thumbnail cannot render */}
       };
-      append(tile,mini);draw();
+      append(tile,mini);
+      // Stagger heavyweight BC canvases instead of drawing six full characters at once.
+      const delay=45*(thumbIndex++);
+      setTimeout(()=>{if(mini.isConnected&&app.studio===st){draw();if(!drawn)setTimeout(draw,220);}},delay);
     }
     function renderAssetGrid() {
       const all=(Array.isArray(group.Asset)?group.Asset:[]).filter(a=>a?.Name);
@@ -871,17 +976,17 @@
       const assets=group.AllowNone?[null,...filtered]:filtered;
       const perPage=app.showThumbnails?6:12,total=Math.max(1,Math.ceil(assets.length/perPage));
       app.editorPage=Math.min(app.editorPage,total-1);
-      grid.replaceChildren();
+      grid.replaceChildren();grid.classList.toggle('pwr-with-previews',app.showThumbnails);
       for(const asset of assets.slice(app.editorPage*perPage,(app.editorPage+1)*perPage)) {
         const isChosen=asset?current?.asset===asset.Name:!current;
         const tile=button('',()=>modifyStudio(list=>{
           const i=list.findIndex(r=>r.group===group.Name);if(i>=0)list.splice(i,1);
           if(asset)list.push({group:group.Name,asset:asset.Name,color:current?.color||'Default'});
-        }),'pwr-asset'+(isChosen?' pwr-active':''));
+        }),'pwr-asset'+(isChosen?' pwr-active':'')+(app.showThumbnails?' pwr-has-preview':''));
         tile.title=asset?.Name||'Remove this item';
         if(!app.showThumbnails||!asset)append(tile,node('span',asset?'◇':'✕','pwr-asset-icon'));
         addTilePreview(tile,asset);
-        append(tile,node('span',asset?displayName(asset.Description||asset.Name):'(None / Remove)'));
+        append(tile,node('span',asset?displayName(asset.Description||asset.Name):'(None / Remove)','pwr-asset-label'));
         append(grid,tile);
       }
       pager.replaceChildren();
@@ -892,21 +997,112 @@
       pager.lastElementChild.disabled=app.editorPage>=total-1;
     }
     renderAssetGrid();
-    const colorSection=node('div',undefined,'pwr-section pwr-colors-section');append(side,colorSection);
-    const colorTitle=node('div',undefined,'pwr-section-top');
-    append(colorTitle,node('span','03','pwr-step'),node('h3','Customize colors'));
-    append(colorSection,colorTitle);
-    const colors=node('div',undefined,'pwr-colorbar');
-    const colorInput=node('input');colorInput.type='text';colorInput.value=Array.isArray(current?.color)?current.color.join(', '):current?.color||'Default';
-    colorInput.placeholder='Default or #AABBCC, #112233';
-    const colorWrap=node('div',undefined,'pwr-grow');append(colorWrap,node('label','Item color / layers'),colorInput);append(colors,colorWrap);
-    const picker=node('input');picker.type='color';picker.value=/^#[0-9a-f]{6}$/i.test(colorInput.value)?colorInput.value:'#e0bbf4';
-    picker.addEventListener('input',()=>{colorInput.value=picker.value;});append(colors,picker);
-    append(colors,button('Apply color',()=>modifyStudio(list=>{
-      const item=list.find(r=>r.group===group.Name);if(!item)return;
-      const raw=colorInput.value.trim();item.color=raw.includes(',')?raw.split(',').map(x=>x.trim()).slice(0,20):raw||'Default';
-    })));
-    append(colorSection,colors);
+    // Saved private outfits: pair+subject-specific and local to this account.
+    const savedSection=createFold('Saved private outfits','03','pwr-saved-section','outfits').body;
+    const presets=savedOutfitsFor(st);
+    append(savedSection,node('p','Saved locally, never in the public BC wardrobe. Loading makes a draft; Save & share sends it.','pwr-help'));
+    const savePresetRow=node('div',undefined,'pwr-preset-row');
+    const presetName=node('input');presetName.type='text';presetName.maxLength=60;presetName.placeholder='Outfit name (e.g. Moonlit Kitty)';
+    const savePresetButton=button('＋ Save current draft',()=>saveOutfitPreset(presetName.value));
+    append(savePresetRow,presetName,savePresetButton);append(savedSection,savePresetRow);
+    append(savedSection,node('div',presets.length+' / '+MAX_SAVED_OUTFITS+' saved outfits for '+(c.Name||st.subject),'pwr-help'));
+    for(const preset of presets.slice(0,MAX_SAVED_OUTFITS)){
+      if(!preset||!Array.isArray(preset.look)||typeof preset.id!=='string')continue;
+      const entry=node('div',undefined,'pwr-preset-entry');
+      const nameInput=node('input');nameInput.type='text';nameInput.maxLength=60;nameInput.value=String(preset.name||'Untitled').slice(0,60);
+      nameInput.title='Edit name, then click Rename';
+      const actions=node('div',undefined,'pwr-preset-actions');
+      append(actions,button('Load',()=>loadOutfitPreset(preset.id)),button('Rename',()=>renameOutfitPreset(preset.id,nameInput.value),'pwr-secondary'));
+      append(entry,nameInput,actions,button('Delete',()=>deleteOutfitPreset(preset.id),'pwr-danger'));append(savedSection,entry);
+    }
+    const colors=createFold('Color atelier · Hex picker','04','pwr-colors-section','colors').body;
+    const currentItem=st.look.find(r=>r.group===group.Name);
+    const selectedAsset=currentItem?assetByName(c,group,currentItem.asset):null;
+    const colorableCount=Math.max(0,Math.min(20,Number(selectedAsset?.ColorableLayerCount??1)));
+    if(!currentItem||!colorableCount){append(colors,node('p',!currentItem?'Choose an item in this slot before changing its colors.':'This asset has no colorable layers.','pwr-help'));}
+    else {
+      const layers=Array.isArray(currentItem.color)?currentItem.color.slice(0,colorableCount):Array(colorableCount).fill(currentItem.color||'Default');
+      while(layers.length<colorableCount)layers.push('Default');
+      const layerIndex=Math.max(0,Math.min(layers.length-1,app.activeColorLayer));
+      app.activeColorLayer=layerIndex;
+      const layerRow=node('div',undefined,'pwr-layers');
+      append(layerRow,node('span','Color layer','pwr-help'));
+      for(let i=0;i<layers.length;i++){
+        append(layerRow,button('Layer '+(i+1),()=>{app.activeColorLayer=i;renderStudio();},'pwr-layer'+(layerIndex===i?' pwr-active':'') ));
+      }
+      append(colors,layerRow);
+      const hexBox=node('div',undefined,'pwr-hex-picker');append(colors,hexBox);
+      const head=node('div',undefined,'pwr-hex-head');append(hexBox,head);
+      const swatch=node('span',undefined,'pwr-hex-chip');
+      const hex=node('input');hex.type='text';hex.placeholder='#RRGGBB';hex.inputMode='text';hex.maxLength=7;
+      hex.style.maxWidth='145px';hex.style.width='145px';
+      const selectedLayer=layers[layerIndex];
+      const cleanHex=s=>{
+        const t=String(s||'').trim();
+        if(/^#[0-9a-f]{6}$/i.test(t))return t.toUpperCase();
+        if(/^#[0-9a-f]{3}$/i.test(t))return '#'+[...t.slice(1)].map(x=>x+x).join('').toUpperCase();
+        return null;
+      };
+      hex.value=cleanHex(selectedLayer)||'#D6A6EC';
+      swatch.style.backgroundColor=hex.value;
+      append(head,node('b','HEX  #RRGGBB'),swatch,hex);
+      // HSV control produces CSS hex values, never browser-native RGB dialogs.
+      const hsvFromHex=value=>{
+        const h=cleanHex(value)||'#D6A6EC';const r=parseInt(h.slice(1,3),16)/255,g=parseInt(h.slice(3,5),16)/255,b=parseInt(h.slice(5,7),16)/255;
+        const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
+        let hue=0;if(d){switch(max){case r:hue=((g-b)/d)%6;break;case g:hue=(b-r)/d+2;break;default:hue=(r-g)/d+4;}hue=(hue*60+360)%360;}
+        return {h:hue,s:max===0?0:d/max,v:max};
+      };
+      const hexFromHSV=(h,s,v)=>{
+        const f=n=>{const k=(n+h/60)%6;return Math.round(255*v*(1-s*Math.max(0,Math.min(k,4-k,1))));};
+        return '#'+[f(5),f(3),f(1)].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();
+      };
+      let hsv=hsvFromHex(hex.value);
+      const plane=node('canvas');plane.width=280;plane.height=130;plane.className='pwr-sv-canvas';
+      const hue=node('input');hue.type='range';hue.className='pwr-hue';hue.min='0';hue.max='360';hue.value=String(Math.round(hsv.h));hue.setAttribute('aria-label','Hue');
+      const drawPlane=()=>{
+        const ctx=plane.getContext('2d');if(!ctx)return;
+        ctx.fillStyle=hexFromHSV(hsv.h,1,1);ctx.fillRect(0,0,plane.width,plane.height);
+        const white=ctx.createLinearGradient(0,0,plane.width,0);white.addColorStop(0,'#fff');white.addColorStop(1,'#ffffff00');ctx.fillStyle=white;ctx.fillRect(0,0,plane.width,plane.height);
+        const black=ctx.createLinearGradient(0,0,0,plane.height);black.addColorStop(0,'#00000000');black.addColorStop(1,'#000');ctx.fillStyle=black;ctx.fillRect(0,0,plane.width,plane.height);
+        ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(hsv.s*plane.width,(1-hsv.v)*plane.height,5,0,Math.PI*2);ctx.stroke();
+        ctx.strokeStyle='#2b153d';ctx.lineWidth=1;ctx.beginPath();ctx.arc(hsv.s*plane.width,(1-hsv.v)*plane.height,6.5,0,Math.PI*2);ctx.stroke();
+      };
+      const syncHex=()=>{hex.value=hexFromHSV(hsv.h,hsv.s,hsv.v);swatch.style.backgroundColor=hex.value;drawPlane();};
+      const pickAt=e=>{const rect=plane.getBoundingClientRect();if(!rect.width||!rect.height)return;
+        hsv.s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));hsv.v=1-Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));syncHex();};
+      let dragging=false;
+      plane.addEventListener('pointerdown',e=>{dragging=true;plane.setPointerCapture?.(e.pointerId);pickAt(e);e.preventDefault();});
+      plane.addEventListener('pointermove',e=>{if(dragging)pickAt(e);});
+      plane.addEventListener('pointerup',e=>{if(dragging)pickAt(e);dragging=false;});
+      plane.addEventListener('pointercancel',()=>{dragging=false;});
+      hue.addEventListener('input',()=>{hsv.h=Number(hue.value);syncHex();});
+      hex.addEventListener('input',()=>{const val=cleanHex(hex.value);if(val){hsv=hsvFromHex(val);hue.value=String(Math.round(hsv.h));swatch.style.backgroundColor=val;drawPlane();}});
+      append(hexBox,plane,hue);
+      const palettes=node('div',undefined,'pwr-swatch-grid');
+      const palette=['#FFFFFF','#000000','#E4B7FF','#D86ECA','#AB68D2','#6F3E91','#FF9CC4','#E06666','#F6AB50','#F2DF75','#7DC77C','#4BA8A8','#7FC3EE','#4E73CE','#956655','#B9B9B9','#FADCDD','#C99282','#805AAF','#4D375F'];
+      for(const col of palette){const choice=button('',()=>{hsv=hsvFromHex(col);hue.value=String(Math.round(hsv.h));syncHex();});choice.style.backgroundColor=col;choice.title=col;choice.setAttribute('aria-label','Choose '+col);append(palettes,choice);}
+      append(hexBox,palettes);
+      const apply=()=>{
+        const valid=cleanHex(hex.value);
+        if(!valid){hex.style.borderColor='#f37e8f';setStatus('Enter a valid hex color such as #D6A6EC.');return;}
+        modifyStudio(list=>{
+          const item=list.find(r=>r.group===group.Name);if(!item)return;
+          const next=Array.isArray(item.color)?item.color.slice(0,colorableCount):Array(colorableCount).fill(item.color||'Default');
+          while(next.length<colorableCount)next.push('Default');
+          next[layerIndex]=valid;item.color=colorableCount===1?valid:next;
+        });
+      };
+      const actionRow=node('div',undefined,'pwr-color-buttons');
+      append(actionRow,button('Apply '+(layers.length>1?'layer '+(layerIndex+1):'hex color'),apply),button('Default',()=>{
+        modifyStudio(list=>{const item=list.find(r=>r.group===group.Name);if(!item)return;
+          const next=Array.isArray(item.color)?item.color.slice(0,colorableCount):Array(colorableCount).fill(item.color||'Default');
+          while(next.length<colorableCount)next.push('Default');next[layerIndex]='Default';item.color=colorableCount===1?next[0]:next;
+        });
+      },'pwr-secondary'));
+      append(hexBox,actionRow,node('p','Choose a swatch, adjust hue/shade, or type #RRGGBB. Color layers follow BC asset definitions. Changes remain private until Save & share.','pwr-help'));
+      drawPlane();
+    }
     const bottom=node('div',undefined,'pwr-bottom');shell.appendChild(bottom);
     const quick=node('div',undefined,'pwr-row');
     append(quick,button('Remove all clothing',()=>modifyStudio((list,character)=>{
@@ -917,6 +1113,14 @@
     const bottomTop=node('div',undefined,'pwr-bottom-top');append(bottomTop,node('span','QUICK ACTIONS','pwr-label-upper'));append(bottomTop,quick);append(bottom,bottomTop);
     append(bottom,node('div','Save & share commits the private style. The live room NEVER displays an unfinished editor draft. This does not alter real BC clothes.','pwr-help'));
     drawStudioCanvas();
+    // Asset images can become ready after CharacterLoadCanvas returns. Retry
+    // against the *same* draft so the first click always schedules its preview.
+    const ticket=++app.studioDrawTicket;
+    const previewCanvas=canvas;
+    for(const delay of [20,90,220,500,1100])setTimeout(()=>{
+      if(app.studio===st && app.studioDrawTicket===ticket &&
+         app.studioPanel?.querySelector('.pwr-character-canvas')===previewCanvas)drawStudioCanvas();
+    },delay);
     if(typeof ResizeObserver==='function'){
       const observer=new ResizeObserver(()=>{
         if(app.studio===st && app.studioPanel?.querySelector('.pwr-scene')===scene)drawStudioCanvas();
@@ -924,11 +1128,47 @@
       observer.observe(scene);app.studioResizeObserver=observer;
     }
   }
+  function applyLauncherPosition() {
+    const b=app.launcher;if(!b)return;
+    if(!app.launcherPosition){b.style.left='';b.style.top='';b.style.right='18px';b.style.bottom='112px';return;}
+    const x=Math.max(0,Math.min(Math.max(0,window.innerWidth-b.offsetWidth),app.launcherPosition.x));
+    const y=Math.max(0,Math.min(Math.max(0,window.innerHeight-b.offsetHeight),app.launcherPosition.y));
+    b.style.left=Math.round(x)+'px';b.style.top=Math.round(y)+'px';b.style.right='auto';b.style.bottom='auto';
+  }
+  function makeLauncherDraggable(b) {
+    let dragging=null,suppressClick=false;
+    b.addEventListener('pointerdown',e=>{
+      if(e.button!==0 && e.pointerType==='mouse')return;
+      const r=b.getBoundingClientRect();
+      dragging={id:e.pointerId,startX:e.clientX,startY:e.clientY,left:r.left,top:r.top,moved:false};
+      try{b.setPointerCapture(e.pointerId);}catch(_){}
+    });
+    b.addEventListener('pointermove',e=>{
+      if(!dragging||dragging.id!==e.pointerId)return;
+      const dx=e.clientX-dragging.startX,dy=e.clientY-dragging.startY;
+      if(!dragging.moved && Math.hypot(dx,dy)<6)return;
+      dragging.moved=true;b.classList.add('pwr-dragging');
+      const x=Math.max(0,Math.min(window.innerWidth-b.offsetWidth,dragging.left+dx));
+      const y=Math.max(0,Math.min(window.innerHeight-b.offsetHeight,dragging.top+dy));
+      app.launcherPosition={x:Math.round(x),y:Math.round(y)};applyLauncherPosition();
+      e.preventDefault();
+    });
+    const finish=e=>{
+      if(!dragging||dragging.id!==e.pointerId)return;
+      if(dragging.moved){suppressClick=true;saveSettings();}
+      dragging=null;b.classList.remove('pwr-dragging');
+    };
+    b.addEventListener('pointerup',finish);b.addEventListener('pointercancel',finish);
+    b.addEventListener('click',e=>{
+      if(suppressClick){e.preventDefault();e.stopImmediatePropagation();suppressClick=false;}
+    },true);
+    window.addEventListener('resize',applyLauncherPosition);
+  }
   function installUI() {
     if(!document.body || app.launcher)return;
     const s=node('style');s.textContent=style;document.head.appendChild(s);
     app.launcher=button('🐾 Private Wardrobe',()=>{if(app.panel.style.display==='none'){app.panel.style.display='block';renderPanel();}else closePanel();});
-    app.launcher.id='pwr-launcher';document.body.appendChild(app.launcher);
+    app.launcher.id='pwr-launcher';document.body.appendChild(app.launcher);makeLauncherDraggable(app.launcher);applyLauncherPosition();
     app.panel=node('div');app.panel.id='pwr-window';app.panel.style.display='none';document.body.appendChild(app.panel);
     app.studioPanel=node('div');app.studioPanel.id='pwr-studio';app.studioPanel.style.display='none';document.body.appendChild(app.studioPanel);
   }
@@ -941,7 +1181,7 @@
     if(chosen && app.panel && app.panel.style.display!=='none') {
       // Avoid forcibly re-rendering text inputs while user is editing.
       const indicator=app.panel.querySelector('.pwr-badge');
-      if(indicator){const peer=app.peers.get(member(chosen));indicator.textContent=peer?.enabled?('Partner addon detected · '+(peer.version==='0.2.2-beta'?'Both on 0.2.2 · Viewing':'Partner '+(peer.version||'older beta')+' · update both accounts')):peer?'Partner has disabled private sharing':'Partner addon not yet detected';}
+      if(indicator){const peer=app.peers.get(member(chosen));indicator.textContent=peer?.enabled?('Partner addon detected · '+(peer.version==='0.2.3-beta'?'Both on 0.2.3 · Viewing':'Partner '+(peer.version||'older beta')+' · update both accounts')):peer?'Partner has disabled private sharing':'Partner addon not yet detected';}
     }
     if(!ps.length && (app.peers.size||Object.keys(app.remote).length||app.studio)) {app.peers.clear();app.remote={};if(app.studio)closeStudio();refreshView();}
   }
@@ -962,9 +1202,11 @@
         const p=currentPartner(),sub=app.studio?.subject||member(me()),c=findChar(sub);
         const look=app.studio?.look || snapshot(c);
         const checked=normalizeLook(c,look);
-        return {version:VERSION,subject:sub,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).length,draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize};
+        return {version:VERSION,subject:sub,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).length,draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,launcherPosition:app.launcherPosition,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,interactionGuard:isNativeInteractionOpen()};
       },
       refresh(){refreshView();},
+      savedOutfits(){return app.studio?savedOutfitsFor(app.studio).map(x=>({id:x.id,name:x.name,savedAt:x.savedAt})):[];},
+      resetLauncher(){app.launcherPosition=null;saveSettings();applyLauncherPosition();},
       // Emergency local-only switch, never changes public appearance.
       disable(){const partner=currentPartner();app.enabled=false;closeStudio();saveSettings();refreshView();if(partner)syncSend(member(partner),{type:'DISABLED'});if(app.panel)renderPanel();},
     });
