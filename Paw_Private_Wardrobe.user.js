@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.2.10-beta
+// @version      0.2.15-beta
 // @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,17 +14,19 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.2.10
+ * Paw Private Wardrobe, beta 0.2.15
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
  * It changes only local character drawings; NEVER calls appearance sync/update.
+ * Private body-fit selections are saved and shared within the owner/sub pair.
+ * All detected bras default to the smallest available female BodyUpper artwork.
  * Not a secrecy system: BC's server and other client mods may inspect game packets.
  * Does not change rules, permissions, restraints, or official game appearance.
  */
 (() => {
   'use strict';
-  const VERSION = '0.2.10-beta';
+  const VERSION = '0.2.15-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -192,6 +194,9 @@
 #pwr-studio .pwr-asset-preview{width:100%;height:165px;max-height:none;max-width:100%;object-fit:contain;object-position:center;display:block;border-radius:9px;background:radial-gradient(ellipse at 50% 38%,#665079,#281d33 80%)}
 #pwr-studio .pwr-asset .pwr-preview-placeholder{height:165px;width:100%;border-radius:9px;background:#24192d;display:grid;place-items:center;font-size:16px}
 #pwr-studio .pwr-asset-label{min-height:2.3em;display:grid;place-items:center;font-size:12px;font-weight:650;line-height:1.15;word-break:normal}
+#pwr-studio .pwr-fit-row{margin-top:8px;flex-wrap:nowrap}
+#pwr-studio .pwr-fit-row select{flex:1;width:100%;min-width:0;max-width:none}
+@media (max-width:700px){#pwr-studio .pwr-fit-row{flex-wrap:wrap}}
 #pwr-studio .pwr-asset-copy{display:grid;gap:2px;align-self:stretch}
 #pwr-studio .pwr-asset-title{display:grid;place-items:center;font-size:12px;font-weight:700;line-height:1.18;color:#f7efff;text-align:center;overflow-wrap:anywhere;min-height:1.2em}
 #pwr-studio .pwr-asset-sub{display:grid;place-items:center;font-size:10.5px;line-height:1.18;color:#cbb6d8;text-align:center;overflow-wrap:anywhere;opacity:.95;min-height:1.1em}
@@ -239,6 +244,18 @@
 #pwr-studio .pwr-asset-copy{padding:0 4px 3px}
 #pwr-studio .pwr-asset-title{font-size:13px}
 #pwr-studio .pwr-asset-sub{font-size:11px;color:#cfb6e0}
+
+/* v0.2.14: chest-size comparison for Bra8 and other breast-sized items. */
+#pwr-studio .pwr-bra-compare{border:1px solid #8b61a7;border-radius:13px;padding:10px;margin-top:9px;background:#21162e}
+#pwr-studio .pwr-bra-compare h3{font-size:12px;letter-spacing:.02em;margin:0 0 5px}
+#pwr-studio .pwr-bra-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}
+#pwr-studio .pwr-bra-choice{padding:6px!important;min-width:0!important;background:#291d37!important;display:grid;gap:5px;justify-items:center;overflow:hidden}
+#pwr-studio .pwr-bra-choice.pwr-active{border:2px solid #f0b7ff!important;background:#64437a!important}
+#pwr-studio .pwr-bra-choice canvas{width:100%;height:112px;object-fit:contain;border-radius:7px;background:radial-gradient(ellipse at 50% 35%,#785a91,#241a32 86%)}
+#pwr-studio .pwr-bra-choice span{font-size:11px;line-height:1.2;overflow-wrap:anywhere;text-align:center}
+#pwr-studio .pwr-bra-compare .pwr-help{margin:7px 0 0}
+@media(max-width:650px){#pwr-studio .pwr-bra-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 @media (prefers-reduced-motion:reduce){#pwr-studio button,#pwr-studio input,#pwr-launcher{transition:none!important;transform:none!important}}
 `;
   const app = {
@@ -257,6 +274,54 @@
   const findChar = id => (id === member(me()) ? me() : occupants().find(c => member(c) === id));
   const cloneJson = v => JSON.parse(JSON.stringify(v));
   const key = (partner, subject) => `${partner}:${subject}`;
+  // A private outfit can use the female clothing silhouettes without changing
+  // the user's real gender, body parts or server appearance.
+  const normalizeFit = value => value === 'flat' || value === 'original' ? value : 'auto';
+  // Some BC clients represent gender differently (or omit it from room
+  // snapshots). Automatic fit must therefore also inspect the ACTUAL body
+  // silhouette, not just a single account flag. The appearance argument can
+  // be a validated private clone OR the character's original appearance.
+  const flatChestName = name => /(?:flat|no.?breast|no.?chest|tiny|extra.?small|very.?small)/i.test(String(name||''));
+  const appearanceChest = appearance => Array.isArray(appearance) ?
+    appearance.find(item=>item?.Asset?.Group?.Name==='BodyUpper')?.Asset?.Name || '' : '';
+  const shouldUseFlatFeminine = (character, mode, appearance=null) => {
+    mode = normalizeFit(mode);
+    if (mode === 'flat') return true;
+    if (mode === 'original') return false;
+    const gender=String(character?.Gender||'').trim().toLowerCase();
+    if (['m','male','man','masculine','boy','nb','nonbinary','non-binary','non binary'].includes(gender)) return true;
+    // A visibly flat chest is a better signal for the requested flat feminine
+    // clothing fit than an absent/inconsistent gender flag. In particular,
+    // FlatSmall + Bra previously returned femaleArtwork:false on Ale.
+    // A saved wardrobe may still contain a nonflat chest even when the
+    // subject's public body is FlatSmall. Inspect BOTH independently.
+    if (flatChestName(appearanceChest(appearance)) || flatChestName(appearanceChest(character?.Appearance))) return true;
+    return false;
+  };
+  function privateFit(character) {
+    const partner=currentPartner();
+    if(!partner||!character)return 'auto';
+    const k=key(member(partner),member(character));
+    const selected=(member(character)===member(me()) && !app.allowPartnerEdits)
+      ?app.profiles[k]:(app.remote[k]&&app.remote[k].look?app.remote[k]:app.profiles[k]);
+    return normalizeFit(selected?.fit);
+  }
+  // The override is a PRIVATE BodyUpper drawing choice, never a real BC body edit.
+  // Validated against the loaded character family to prevent stale/forged names.
+  function normalizeBraChest(c, requested) {
+    const name=String(requested||'auto');
+    if(name==='auto')return 'auto';
+    if(name.length>70)return 'auto';
+    return groupAssets(groupByName(c,'BodyUpper')).find(a=>a.Name===name)?.Name || 'auto';
+  }
+  function privateBraChest(character) {
+    const partner=currentPartner();
+    if(!partner||!character)return 'auto';
+    const k=key(member(partner),member(character));
+    const selected=(member(character)===member(me())&&!app.allowPartnerEdits)
+      ?app.profiles[k]:(app.remote[k]?.look?app.remote[k]:app.profiles[k]);
+    return normalizeBraChest(character,selected?.braChest);
+  }
   const isOwnerOf = (owner, sub) => {
     if (!owner || !sub || owner === sub) return false;
     try { if (typeof sub.IsOwnedByCharacter === 'function' && sub.IsOwnedByCharacter(owner)) return true; } catch (_) {}
@@ -376,7 +441,106 @@
     } catch (_) {}
     return {Asset: asset, Color: color, Difficulty: 0};
   };
-  const appearanceFor = (c, look) => {
+  // Private garment compatibility. These catalog lookups are not inventory,
+  // gender, or permission checks: they only choose artwork for detached clones.
+  function hasBraInAppearance(appearance) {
+    return Array.isArray(appearance) && appearance.some(item=>{
+      const group=String(item?.Asset?.Group?.Name||'');
+      const name=String(item?.Asset?.Name||'');
+      // All standard Bra variants (Bra, Bra2, etc.) and chest restraints with
+      // "bra" in their asset name. Never treat an arbitrary shirt as a bra.
+      return /^Bra\d*$/i.test(group) ||
+        (group==='ItemBreast' && /bra/i.test(name));
+    });
+  }
+  function smallestUpperBodyAsset(c,bra=false) {
+    const group=groupByName(c,'BodyUpper');
+    if(!group || group.Category!=='Appearance')return null;
+    const list=groupAssets(group);
+    const find=(names)=>{
+      for(const wanted of names) {
+        const found=list.find(a=>a.Name.toLowerCase()===wanted.toLowerCase());
+        if(found)return found;
+      }
+      return null;
+    };
+    // A FlatSmall silhouette does not automatically supply the *female Small*
+    // sprite family. Select real female Small before all flat male presets.
+    // Use Normal if Small does not exist, instead of silently choosing FlatSmall.
+    const feminineSmall=['Small','SmallBreasts','SmallChest','BreastsSmall',
+      'VerySmall','ExtraSmall','XSmall','XXSmall','Tiny','AA','AAA','A'];
+    const flat=['Flat','FlatChest','FlatSmall','NoBreasts','NoBreast','NoChest'];
+    if (bra) {
+      return find(feminineSmall) ||
+        list.find(a=>/small|tiny/i.test(a.Name) && !/flat|no.?breast|no.?chest/i.test(a.Name)) ||
+        find(['Normal','Medium','Default']) || find(flat) || list[0] || null;
+    }
+    return find(flat) || find(feminineSmall) ||
+      list.find(a=>/flat|no.?breast|no.?chest|small|tiny/i.test(a.Name)) || null;
+  }
+  function shouldRenderFeminine(c,fit,appearance) {
+    // "Original" is the explicit opt-out. Otherwise every bra, even on
+    // characters whose gender is unavailable in a room snapshot, requests
+    // feminine art and the smallest bra-compatible female chest.
+    if(normalizeFit(fit)==='original') return false;
+    return hasBraInAppearance(appearance) || shouldUseFlatFeminine(c,fit,appearance);
+  }
+  function compatibleOriginalBodyStyle(c) {
+    const group=groupByName(c,'BodyStyle');
+    if(!group||group.Category!=='Appearance')return null;
+    const list=groupAssets(group);
+    const originals=['Original','Classic','Default'];
+    for(const name of originals) {
+      const match=list.find(a=>a.Name.toLowerCase()===name.toLowerCase());
+      if(match)return match;
+    }
+    return null; // Never pick an arbitrary alternative body style.
+  }
+  function applyFeminineFlat(c, appearance, fit, braChest='auto') {
+    if(!shouldRenderFeminine(c,fit,appearance))return appearance;
+    const bra=hasBraInAppearance(appearance);
+    // Auto is always the smallest *female* chest for bras. A manual choice
+    // from the comparison gallery is a deliberate per-outfit exception.
+    const explicit=(bra && normalizeBraChest(c,braChest)!=='auto')
+      ?groupAssets(groupByName(c,'BodyUpper')).find(a=>a.Name===normalizeBraChest(c,braChest))
+      :null;
+    const chest=explicit || smallestUpperBodyAsset(c,bra);
+    const originalStyle=bra ? compatibleOriginalBodyStyle(c) : null;
+    const updated=appearance.slice();
+    if(chest) {
+      const index=updated.findIndex(item=>item?.Asset?.Group?.Name==='BodyUpper');
+      const upper=index>=0?updated[index]:null;
+      const color=upper?.Color || c.Appearance?.find(item=>item?.Asset?.Group?.Name==='BodyUpper')?.Color || 'Default';
+      // Replace in-place: body items shouldn't be reordered after clothing.
+      const replacement=appearanceItem(chest,color,upper);
+      if(index>=0)updated[index]=replacement;
+      else updated.unshift(replacement);
+    }
+    if(originalStyle) {
+      const index=updated.findIndex(item=>item?.Asset?.Group?.Name==='BodyStyle');
+      const prior=index>=0?updated[index]:null;
+      // Original body artwork is the safest base for female-only bra sprites
+      // when a modded/Echo body style has no corresponding bra image.
+      const replacement=appearanceItem(originalStyle,prior?.Color||'Default',prior);
+      if(index>=0)updated[index]=replacement;
+      else updated.unshift(replacement);
+    }
+    return updated;
+  }
+  function braFitInfo(c,look,fit,braChest='auto') {
+    if(!c)return null;
+    const appearance=appearanceFor(c,look,fit,braChest);
+    if(!appearance)return null;
+    return {mode:normalizeFit(fit),braChest:normalizeBraChest(c,braChest),femaleArtwork:shouldRenderFeminine(c,fit,appearance),autoSmallFemale:smallestUpperBodyAsset(c,true)?.Name||null,braDetected:hasBraInAppearance(appearance),
+      detectedGender:String(c.Gender??''),sourceChest:appearanceChest(c.Appearance),fitReason:normalizeFit(fit)==='original'?'original / no override':normalizeFit(fit)==='flat'?'forced flat':flatChestName(appearanceChest(c.Appearance))?'flat source body':'gender / body detection',
+      bra:appearance.filter(it=>it?.Asset?.Group?.Name==='Bra'||(it?.Asset?.Group?.Name==='ItemBreast'&&/bra/i.test(it.Asset?.Name||''))).map(it=>it.Asset.Name),
+      chest:appearance.find(it=>it?.Asset?.Group?.Name==='BodyUpper')?.Asset?.Name||null,
+      bodyStyle:appearance.find(it=>it?.Asset?.Group?.Name==='BodyStyle')?.Asset?.Name||null,
+      availableChestSizes:groupAssets(groupByName(c,'BodyUpper')).map(a=>a.Name),
+      availableBodyStyles:groupAssets(groupByName(c,'BodyStyle')).map(a=>a.Name),braAssetsInCatalog:groupAssets(groupByName(c,'Bra')).length
+    };
+  }
+  const appearanceFor = (c, look, fit='auto', braChest='auto') => {
     const records=validateLook(c,look);
     if (!records) return null;
     const recordGroups=new Set(records.map(r=>r.group));
@@ -397,7 +561,7 @@
       if (!asset)continue;
       modified.push(appearanceItem(asset,record.color,oldByGroup.get(record.group)));
     }
-    return modified;
+    return applyFeminineFlat(c,modified,fit,braChest);
   };
   const configKey = () => `pawPrivateWardrobe:v1:${member(me())}`;
   function loadSettings() {
@@ -414,6 +578,23 @@
         app.selected = Number.isInteger(saved.selected) ? saved.selected : 0;
         app.profiles = saved.profiles && typeof saved.profiles === 'object' ? saved.profiles : {};
         app.outfits = saved.outfits && typeof saved.outfits === 'object' && !Array.isArray(saved.outfits) ? saved.outfits : {};
+        // One-time migration: old hand-picked bra sizes can silently defeat
+        // the new automatic female-Small compatibility. Reset them for bras
+        // in Automatic/Flat mode. Users can deliberately reselect a manual
+        // size afterwards; existing public characters are never altered.
+        if (!saved.braAutoSmallMigrated215) {
+          const hasSavedBra = entry => Array.isArray(entry?.look) && entry.look.some(item =>
+            /^Bra\d*$/i.test(item.group || '') ||
+            (item.group === 'ItemBreast' && /bra/i.test(item.asset || '')));
+          for (const entry of Object.values(app.profiles)) {
+            if (hasSavedBra(entry) && normalizeFit(entry.fit) !== 'original') entry.braChest='auto';
+          }
+          for (const list of Object.values(app.outfits)) if (Array.isArray(list)) {
+            for (const entry of list) if (hasSavedBra(entry) && normalizeFit(entry.fit) !== 'original') entry.braChest='auto';
+          }
+          try { localStorage.setItem(configKey(), JSON.stringify({...saved,profiles:app.profiles,outfits:app.outfits,braAutoSmallMigrated215:true})); }
+          catch (_) {}
+        }
         app.launcherPosition = saved.launcherPosition && Number.isFinite(saved.launcherPosition.x) && Number.isFinite(saved.launcherPosition.y) ? saved.launcherPosition : null;
         app.background = typeof saved.background === 'string' ? saved.background : 'violet';
         app.previewSize = [320,380,460,540,640].includes(saved.previewSize) ? saved.previewSize : 380;
@@ -425,7 +606,7 @@
   }
   function saveSettings() {
     if (!me()) return;
-    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,launcherPosition:app.launcherPosition,previewModeV3:true,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails,thumbnailFocus:app.thumbnailFocus})); }
+    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,launcherPosition:app.launcherPosition,previewModeV3:true,braAutoSmallMigrated215:true,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails,thumbnailFocus:app.thumbnailFocus})); }
     catch(err) { console.warn('[Paw Private Wardrobe] Local save failed:',err); }
   }
   const currentPartner = () => {
@@ -484,7 +665,7 @@
     } catch(err) {sync.lastProblem='Could not send message: '+String(err);return false;}
     return true; // Queued for BC; not proof the partner has received it.
   };
-  function sendState(partner, subject, look, changed=Date.now()) {
+  function sendState(partner, subject, look, changed=Date.now(), fit='auto', braChest='auto') {
     if (!eligible(partner)) return false;
     const peer = app.peers.get(partner);
     if (!peer || !peer.enabled) return false;
@@ -493,7 +674,7 @@
     const validated = validateLook(c, look);
     if (!validated) return false;
     if (subject !== member(me()) && subject !== partner) return false;
-    const sent=syncSend(partner, {type:'STATE',subject,look:validated,ts:changed});
+    const sent=syncSend(partner, {type:'STATE',subject,look:validated,fit:normalizeFit(fit),braChest:normalizeBraChest(c,braChest),ts:changed});
     if (sent) {app.diagnostics.sync.stateSent++;app.diagnostics.sync.lastSend={subject,to:partner,ts:changed,at:Date.now(),items:validated.length};}
     return sent;
   }
@@ -506,7 +687,7 @@
       const saved = app.profiles[key(id,subject)];
       if (!saved) continue;
       if (saved.removed) sendReset(id,subject,saved.changed||0);
-      else if (Array.isArray(saved.look)) sendState(id,subject,saved.look,saved.changed||0);
+      else if (Array.isArray(saved.look)) sendState(id,subject,saved.look,saved.changed||0,saved.fit,saved.braChest);
     }
   }
   function sendHello(id, force=false) {
@@ -596,9 +777,10 @@
       if (!Array.isArray(payload.look)) {ack('rejected','Invalid appearance data.');return;}
       const look=validateLook(findChar(subject),payload.look);
       if (!look) {ack('rejected','Assets could not be read.');return;}
-      app.remote[k]={look,received:Date.now()};
+      const fit=normalizeFit(payload.fit),braChest=normalizeBraChest(findChar(subject),payload.braChest);
+      app.remote[k]={look,fit,braChest,received:Date.now()};
       // Keep synchronized private looks available after a refresh/rejoin.
-      app.profiles[k]={look,changed:stamp};
+      app.profiles[k]={look,fit,braChest,changed:stamp};
       if(app.studio?.partner===sender && app.studio.subject===subject)app.studio.remoteChanged=true;
     }
     sync.stateReceived++;
@@ -614,7 +796,7 @@
   function addHooks() {
     if (!globalThis.bcModSdk || typeof globalThis.bcModSdk.registerMod !== 'function') return false;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.10'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.15'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -676,7 +858,7 @@
             }
             const look=effectiveLook(C);
             if (look) {
-              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw);
+              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw,privateFit(C),privateBraChest(C));
               if (clone && clone.Canvas) {
                 app.privateDrawCalls++;
                 app.diagnostics.render='private replica used in DrawCharacter';
@@ -720,7 +902,7 @@
         if(!c || !c.Canvas || (source!==c.Canvas && source!==c.CanvasBlink))continue;
         const look=effectiveLook(c);
         if(!look)continue;
-        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw);
+        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw,privateFit(c),privateBraChest(c));
         if(!clone || !clone.Canvas)continue;
         const replacement=source===c.CanvasBlink ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
         if(!replacement || replacement===source)continue;
@@ -737,16 +919,21 @@
     const p=currentPartner();
     return !!p && (member(c)===member(me()) || member(c)===member(p));
   }
-  function getRenderClone(c,look,cache=app.clones,onReady=null) {
+  function getRenderClone(c,look,cache=app.clones,onReady=null,fit='auto',braChest='auto') {
+    fit=normalizeFit(fit);
+    braChest=normalizeBraChest(c,braChest);
     const cached=cache.get(c);
     // Stable array reference is a cheap draw-frame cache key. Edits always replace the array.
-    if (cached && cached.lookRef===look && cached.generation===app.generation)
+    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.generation===app.generation)
       return cached.pending ? null : cached.clone;
-    const appearance=appearanceFor(c,look);
+    const appearance=appearanceFor(c,look,fit,braChest);
     if (!appearance) {app.diagnostics.render='appearance data could not be normalized';return null;}
     // Never assign the modified appearance to the real Player or room character.
     const replica=Object.assign(Object.create(Object.getPrototypeOf(c)),c);
     replica.Appearance=appearance;
+    // Only the detached clone receives a feminine gender flag. BC's asset
+    // loader may use this flag when picking female-only clothing layers.
+    if(shouldRenderFeminine(c,fit,appearance))replica.Gender='F';
     replica.Canvas=document.createElement('canvas');
     replica.Canvas.width=c.Canvas?.width || 500;
     replica.Canvas.height=c.Canvas?.height || 1000;
@@ -756,7 +943,7 @@
     replica.DrawAppearance=appearance;
     replica.__PawPrivateReplica=true;
     if (typeof CharacterLoadCanvas!=='function') {app.diagnostics.render='CharacterLoadCanvas is unavailable';return null;}
-    const record={lookRef:look,generation:app.generation,pending:true,clone:null};
+    const record={lookRef:look,fit,braChest,generation:app.generation,pending:true,clone:null};
     cache.set(c,record);
     try {
       const result=CharacterLoadCanvas(replica);
@@ -844,7 +1031,8 @@
     const pid=member(partner), stored=app.profiles[key(pid,subject)];
     if(subject===pid && app.peers.get(pid)?.accept===false){setStatus('Your partner disabled remote styling.');return;}
     const current=(!stored?.removed && Array.isArray(stored?.look))?stored.look:app.remote[key(pid,subject)]?.look;
-    app.studio={partner:pid,subject,look:cloneJson(current||snapshot(c)),dirty:false,remoteChanged:false,overwriteConfirmed:false};
+    const source=(!stored?.removed&&Array.isArray(stored?.look))?stored:app.remote[key(pid,subject)];
+    app.studio={partner:pid,subject,look:cloneJson(current||snapshot(c)),fit:normalizeFit(source?.fit),braChest:normalizeBraChest(c,source?.braChest),dirty:false,remoteChanged:false,overwriteConfirmed:false};
     app.studioClones=new WeakMap();app.editorSubject=subject;app.editorTab='Clothing';app.editorSearch='';app.editorPage=0;
     const groups=assetGroups(c).filter(g=>groupClass(g)==='Clothing');
     app.editorGroup=groups[0]?.Name||assetGroups(c)[0]?.Name||'';
@@ -874,9 +1062,9 @@
     if(st.subject===st.partner && app.peers.get(st.partner)?.accept===false){setStatus('Your partner disabled remote styling.');return;}
     const c=findChar(st.subject),look=validateLook(c,st.look);if(!look)return;
     const pid=st.partner,subject=st.subject,changed=Date.now();
-    app.profiles[key(pid,subject)]={look,changed};delete app.remote[key(pid,subject)];
+    app.profiles[key(pid,subject)]={look,fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),changed};delete app.remote[key(pid,subject)];
     saveSettings();refreshView();closeStudio();
-    const sent=sendState(pid,subject,look,changed);
+    const sent=sendState(pid,subject,look,changed,st.fit,st.braChest);
     setStatus(sent?'Private look saved and sent; awaiting acknowledgment.':'Saved locally but partner delivery is unavailable.');
   }
   function savedOutfitsFor(st) {
@@ -891,7 +1079,7 @@
     if(list.length>=MAX_SAVED_OUTFITS){setStatus('Maximum '+MAX_SAVED_OUTFITS+' saved outfits for this person. Remove one first.');return false;}
     const raw=String(name||'').trim().slice(0,60);
     const title=raw||'Outfit '+new Date().toLocaleString();
-    list.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:title,look:cloneJson(valid),savedAt:Date.now()});
+    list.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:title,look:cloneJson(valid),fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),savedAt:Date.now()});
     app.outfits[k]=list;saveSettings();setStatus('Saved private outfit preset: '+title);renderStudio();return true;
   }
   function loadOutfitPreset(id) {
@@ -899,7 +1087,10 @@
     const entry=savedOutfitsFor(st).find(x=>x?.id===id);
     if(!entry||!Array.isArray(entry.look))return;
     modifyStudio(list=>list.splice(0,list.length,...cloneJson(entry.look)));
-    setStatus('Loaded preset into your draft. Press Save & share to send it.');
+    st.fit=normalizeFit(entry.fit);
+    st.braChest=normalizeBraChest(findChar(st.subject),entry.braChest);
+    app.studioClones=new WeakMap();renderStudio();
+    setStatus('Loaded preset and body fit into your draft. Press Save & share to send it.');
   }
   function renameOutfitPreset(id,name) {
     const st=app.studio;if(!st)return;
@@ -946,7 +1137,7 @@
     append(panel,node('p','The private wardrobe uses its own preview and background. Only Save & share updates the look your partner sees.','pwr-help'));
     append(panel,button('Reset floating button position',()=>{app.launcherPosition=null;saveSettings();applyLauncherPosition();},'pwr-secondary'));
     append(panel,node('div',app.status,'pwr-help'));panel.lastElementChild.id='pwr-status';
-    append(panel,node('p','Catalog items are visual-only; owning items or gender restrictions do not filter this studio. Missing sprites cannot be drawn. Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
+    append(panel,node('p','Catalog items are visual-only; owning items or gender restrictions do not filter this studio. The private body-fit setting can use female flat-chest layers when supplied by BC. Missing sprites cannot be drawn. Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
   }
   // Work with the VISIBLE bounds of the BC character image, not the large
   // transparent margins of its off-screen drawing canvas. The result is cached
@@ -1080,7 +1271,7 @@
     try {
       const clone=getRenderClone(c,st.look,app.studioClones,()=>{
         if(app.studio===st)drawStudioCanvas();
-      });
+      },st.fit,st.braChest);
       const source=clone?.Canvas;
       if(!source)return; // Don't flash public outfit while the first private drawing is loading.
       // FIXED character silhouette size in CSS pixels, independent of the
@@ -1133,6 +1324,8 @@
       append(actions,button('Load newer look',()=>{
         const saved=app.profiles[key(st.partner,st.subject)];
         st.look=cloneJson(saved&&!saved.removed&&saved.look?saved.look:snapshot(c));
+        st.fit=normalizeFit(saved?.fit);
+        st.braChest=normalizeBraChest(c,saved?.braChest);
         st.remoteChanged=false;st.overwriteConfirmed=false;st.dirty=false;
         app.studioClones=new WeakMap();renderStudio();
       }));
@@ -1168,6 +1361,67 @@
     sizeControl.value=String(app.previewSize);
     sizeControl.addEventListener('change',()=>{const size=Number(sizeControl.value);if(![320,380,460,540,640].includes(size))return;app.previewSize=size;saveSettings();drawStudioCanvas();});
     append(controls,sizeControl);append(backdropCard,controls);
+    const fitRow=node('div',undefined,'pwr-backdrop-row pwr-fit-row');
+    append(fitRow,node('span','Private body fit'));
+    const fitSelect=makeSelect(fitRow,[
+      ['auto','Automatic · female Small for bras'],
+      ['flat','Flat feminine · any gender'],
+      ['original','Original body / gender']
+    ],normalizeFit(st.fit),value=>{
+      st.fit=normalizeFit(value);st.dirty=true;st.overwriteConfirmed=false;
+      app.studioClones=new WeakMap();drawStudioCanvas();renderStudio();
+    });
+    fitSelect.title='Only the private illustration changes. Public body, gender, clothing and equipment remain untouched.';
+    append(backdropCard,fitRow);
+    append(backdropCard,node('p','Automatic recognizes common non-female gender values and flat chest assets. Every bra in Automatic or Flat feminine mode uses the smallest available female chest by default (normally Small). Original is an opt-out. This affects detached art only, not public body data.','pwr-help'));
+    // Bra8 (Lace and Satin) and similar bras may supply a shaped sprite even
+    // with a flat BodyUpper. Compare the ACTUAL local game drawings rather than
+    // claiming that merely setting Gender=F reshapes the sprite artwork.
+    const fitAppearance=appearanceFor(c,st.look,st.fit,st.braChest);
+    const selectedBra=fitAppearance?.find(it=>hasBraInAppearance([it]));
+    if(selectedBra && shouldRenderFeminine(c,st.fit,fitAppearance)) {
+      const compare=node('div',undefined,'pwr-bra-compare');
+      append(compare,node('h3','Bra artwork fit · '+displayName(selectedBra.Asset?.Description||selectedBra.Asset?.Name||'Bra')));
+      append(compare,node('p','Automatic picks the smallest available female body for every bra. Manual alternatives below are for bras with unusual artwork. Fixed-shaped cup sprites cannot be reshaped without new art.','pwr-help'));
+      const variants=['auto',...groupAssets(groupByName(c,'BodyUpper')).map(a=>a.Name)];
+      const choiceGrid=node('div',undefined,'pwr-bra-choices');append(compare,choiceGrid);
+      for(const choice of variants) {
+        const active=normalizeBraChest(c,st.braChest)===choice;
+        const tile=button('',()=>{
+          st.braChest=choice;st.dirty=true;st.overwriteConfirmed=false;
+          app.studioClones=new WeakMap();renderStudio();
+        },'pwr-bra-choice'+(active?' pwr-active':''));
+        const canvas=node('canvas');canvas.width=180;canvas.height=150;
+        append(tile,canvas,node('span',choice==='auto'?'Automatic · smallest female':choice));
+        append(choiceGrid,tile);
+        const cache=new WeakMap();let attempts=0,complete=false;
+        const drawChoice=()=>{
+          if(app.studio!==st || !canvas.isConnected||complete)return;
+          try {
+            const clone=getRenderClone(c,st.look,cache,drawChoice,st.fit,choice);
+            const src=clone?.Canvas;
+            if(src && thumbnailCanvasReady(src)) {
+              const full=visibleStudioBounds(src);
+              // Chest-focused, stable framing. A wide crop leaves shoulders and
+              // neckline visible for assessing bra cup fit.
+              const bx=full.x+full.width*.10,by=full.y+full.height*.20;
+              const bw=full.width*.80,bh=full.height*.41;
+              const ctx=canvas.getContext('2d');
+              if(ctx) {
+                const scale=Math.min(canvas.width/bw,canvas.height/bh);
+                const w=bw*scale,h=bh*scale;
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                ctx.drawImage(src,bx,by,bw,bh,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
+                complete=true;
+              }
+            }
+          }catch(_){/* a BC sprite may be unavailable */}
+          if(!complete && ++attempts<10)setTimeout(drawChoice,120+attempts*145);
+        };
+        setTimeout(drawChoice,100);
+      }
+      append(backdropCard,compare);
+    }
     const urlRow=node('div',undefined,'pwr-background');
     const url=node('input');url.type='text';url.placeholder='Custom HTTPS image URL';url.value=app.customBackground||'';
     url.title='An external background image is downloaded directly by your browser.';
@@ -1277,14 +1531,14 @@
         if(!canContinue())return;
         let visible=false;
         try {
-          const replica=getRenderClone(c,look,cache,draw);
+          const replica=getRenderClone(c,look,cache,draw,st.fit,st.braChest);
           const source=replica?.Canvas;
           if(source && thumbnailCanvasReady(source)) {
             // A failed/delayed reference should never prevent the candidate
             // itself from appearing. Use slot-based framing until both render.
             const same=current?.asset===asset.Name;
             const referenceNeeded=app.thumbnailFocus==='item'&&mode==='item'&&!same;
-            const baseline=referenceNeeded?getRenderClone(c,referenceLook,referenceCache,draw):null;
+            const baseline=referenceNeeded?getRenderClone(c,referenceLook,referenceCache,draw,st.fit,st.braChest):null;
             const baseReady=!!baseline?.Canvas&&thumbnailCanvasReady(baseline.Canvas);
             const focused=app.thumbnailFocus==='full'?visibleStudioBounds(source)
               :thumbnailFocusBounds(source,baseReady?baseline.Canvas:null,group,mini.width/mini.height);
@@ -1556,11 +1810,35 @@
       studio(subject=member(me())){beginStudio(Number(subject));},
       closeStudio(){closeStudio();},
       status(){return {version:VERSION,ready:app.ready,selected:app.selected,enabled:app.enabled,mode:app.studio?'EDITING':'VIEWING',partnerDetected:!!app.peers.get(app.selected),partnerCount:partners().length,partnerVersion:app.peers.get(app.selected)?.version||null,render:app.diagnostics.render,skippedAssets:app.diagnostics.lastEditSkipped.length,lastAck:app.diagnostics.sync.lastAck};},
+      braCatalogStatus(subject=member(me())) {
+        const c=findChar(Number(subject)); if(!c)return null;
+        const small=smallestUpperBodyAsset(c,true);
+        const bras=assetGroups(c).filter(g=>/^Bra\d*$/i.test(g.Name))
+          .flatMap(g=>groupAssets(g).map(a=>({group:g.Name,asset:a.Name})));
+        const breast=groupByName(c,'ItemBreast');
+        if(breast)for(const a of groupAssets(breast))if(/bra/i.test(a.Name))bras.push({group:'ItemBreast',asset:a.Name});
+        return {subject:member(c),catalogBras:bras.length,automaticFemaleChest:small?.Name||null,
+          availableChestSizes:groupAssets(groupByName(c,'BodyUpper')).map(a=>a.Name),
+          expectedArtworkGender:'F',publicAppearanceUntouched:true,
+          note:'Catalog support does not guarantee every bra sprite has a flat-cup drawing.'};
+      },
+      braFitStatus(subject=member(me())) {
+        const c=findChar(Number(subject));
+        if(!c)return {error:'Character is not available in this room.'};
+        const draft=app.studio?.subject===member(c)?app.studio:null;
+        const partner=currentPartner(),pid=member(partner);
+        const profile=pid ? (app.remote[key(pid,member(c))] || app.profiles[key(pid,member(c))]) : null;
+        const look=draft?.look || profile?.look || snapshot(c);
+        const fit=draft?draft.fit:privateFit(c);
+        return {...braFitInfo(c,look,fit,draft?draft.braChest:privateBraChest(c)),subject:member(c),editing:!!draft,privateOnly:true};
+      },
       roomRenderStatus() {
         const p=currentPartner();
         return {version:VERSION,screen:typeof CurrentScreen!=='undefined'?CurrentScreen:'unknown',
           partner:p?.MemberNumber||null,hasSavedLook:!!(p&&effectiveLook(p)),
           localHasSavedLook:!!(me()&&effectiveLook(me())),
+          partnerFit:p?privateFit(p):null,localFit:me()?privateFit(me()):null,
+          partnerBraChest:p?privateBraChest(p):null,localBraChest:me()?privateBraChest(me()):null,
           privateDrawCharacter:app.privateDrawCalls,privateDrawCanvas:app.privateCanvasCalls,
           drawCanvasCalls:app.canvasHookCalls,roomDrawCalls:app.roomDrawCalls,
           nativeDrawSkips:app.nativeDrawSkips,render:app.diagnostics.render,
@@ -1570,7 +1848,7 @@
         const p=currentPartner(),sub=app.studio?.subject||member(me()),c=findChar(sub);
         const look=app.studio?.look || snapshot(c);
         const checked=normalizeLook(c,look);
-        return {version:VERSION,subject:sub,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
+        return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
       },
       refresh(){refreshView();},
       savedOutfits(){return app.studio?savedOutfitsFor(app.studio).map(x=>({id:x.id,name:x.name,savedAt:x.savedAt})):[];},
