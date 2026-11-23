@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.2.26-beta
+// @version      0.3.0-beta
 // @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.2.26
+ * Paw Private Wardrobe, beta 0.3.0
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.2.26-beta';
+  const VERSION = '0.3.0-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -37,384 +37,87 @@
   const MAX_SAVED_OUTFITS = 30;
   const SAFE_COLOR = /^(?:#[\da-fA-F]{3,8}|[\w ,.#()-]{1,80})$/;
   const style = `
-/* Paw Private Wardrobe – Moonlit Atelier */
-#pwr-launcher{position:fixed;z-index:2147483000;right:18px;bottom:112px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;padding:12px 17px;border-radius:999px;border:1px solid #d4a5f0;background:linear-gradient(120deg,#513071,#9251a4);color:#fff;font:700 13px/1.3 system-ui,-apple-system,sans-serif;box-shadow:0 9px 24px #11071bc0, inset 0 1px #ffffff38;cursor:pointer;transition:transform .16s,box-shadow .16s}
-#pwr-launcher.pwr-dragging{cursor:grabbing;transform:none!important;opacity:.93}
-#pwr-launcher:hover{transform:translateY(-2px);box-shadow:0 13px 29px #100716dc, inset 0 1px #ffffff50}
-#pwr-window,#pwr-studio{box-sizing:border-box;color:#f8f3ff;font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.01em}
+/* Paw Private Wardrobe v0.3.0 – BC-inspired, single-canvas interface */
+#pwr-launcher {position:fixed;z-index:2147483000;right:18px;bottom:112px;user-select:none;touch-action:none;cursor:grab;border:2px solid #5e008a;border-radius:13px;background:#25102dcc;color:#f7e7ff;padding:10px 15px;font:700 13px Arial,sans-serif;box-shadow:0 4px 16px #000a}
+#pwr-launcher.pwr-dragging{cursor:grabbing}
+#pwr-window,#pwr-studio {font:15px Arial,sans-serif;color:#eee;box-sizing:border-box}
 #pwr-window *,#pwr-studio *{box-sizing:border-box}
-#pwr-window{position:fixed;z-index:2147483001;right:16px;bottom:165px;width:min(435px,calc(100vw - 22px));max-height:min(80vh,780px);overflow:auto;background:linear-gradient(160deg,#2e223d,#181220);border:1px solid #895eac;border-radius:18px;box-shadow:0 25px 70px #09030dd9;padding:18px}
-#pwr-window .pwr-head,#pwr-studio .pwr-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-#pwr-window h2,#pwr-studio h2{font:750 19px/1.25 system-ui;margin:0;letter-spacing:-.025em}
-#pwr-window h3,#pwr-studio h3{font:700 14px/1.3 system-ui;margin:0}
-#pwr-window p,#pwr-studio p{margin:7px 0;color:#cabcd8}
-#pwr-window .pwr-row,#pwr-studio .pwr-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:8px 0}
-#pwr-window label,#pwr-studio label{display:block;margin:6px 0 5px;color:#dfcee9;font-weight:550}
-#pwr-window select,#pwr-window input[type=text],#pwr-studio select,#pwr-studio input[type=text],#pwr-studio input[type=search]{width:100%;min-height:39px;padding:9px 11px;border-radius:11px;background:#1d1529;color:#f7efff;border:1px solid #614b76;font:inherit;outline:none;transition:border-color .16s,box-shadow .16s}
-#pwr-window select:focus,#pwr-window input:focus,#pwr-studio select:focus,#pwr-studio input:focus{border-color:#c59aec;box-shadow:0 0 0 3px #ad72e033}
-#pwr-window button,#pwr-studio button{padding:9px 13px;min-height:37px;border-radius:10px;border:1px solid #9265ae;background:linear-gradient(180deg,#8957a1,#633b7d);color:#fff;cursor:pointer;font:600 13px/1.25 system-ui,-apple-system,sans-serif;box-shadow:inset 0 1px #ffffff19;transition:background .15s,transform .15s,border-color .15s}
-#pwr-window button:hover,#pwr-studio button:hover{background:linear-gradient(180deg,#a575ba,#795093);border-color:#dfb9f1;transform:translateY(-1px)}
-#pwr-window button:focus-visible,#pwr-studio button:focus-visible{outline:2px solid #edcaff;outline-offset:2px}
-#pwr-window button:disabled,#pwr-studio button:disabled{opacity:.4;cursor:default;transform:none}
-#pwr-window .pwr-secondary,#pwr-studio .pwr-secondary{background:#312440;border-color:#665079}
-#pwr-window .pwr-secondary:hover,#pwr-studio .pwr-secondary:hover{background:#493356}
-#pwr-window .pwr-danger,#pwr-studio .pwr-danger{background:#492734;border-color:#aa596c;color:#ffd9df}
-#pwr-window .pwr-danger:hover,#pwr-studio .pwr-danger:hover{background:#673342}
-#pwr-window .pwr-badge,#pwr-studio .pwr-badge{background:#382947;padding:9px 11px;border-radius:10px;color:#e1cee9;border:1px solid #614777}
-#pwr-window .pwr-line,#pwr-studio .pwr-line{border-top:1px solid #493758;margin:12px 0}
-#pwr-window .pwr-help,#pwr-studio .pwr-help{font-size:12px;color:#bdaeca;line-height:1.5}
-#pwr-studio{position:fixed;inset:0;z-index:2147483100;background:#090411e8;display:flex;align-items:center;justify-content:center;padding:12px}
-#pwr-studio .pwr-shell{width:min(1480px,100%);height:min(920px,96dvh);display:flex;flex-direction:column;overflow:hidden;background:#14101e;border:1px solid #8a64a9;border-radius:21px;box-shadow:0 25px 85px #040207eb,0 0 0 1px #e3baff20}
-#pwr-studio .pwr-toolbar{flex:0 0 auto;padding:14px 20px 12px;background:linear-gradient(100deg,#30203f,#241a32 62%,#312344);border-bottom:1px solid #684e80;box-shadow:0 4px 18px #0002}
-#pwr-studio .pwr-brand{display:flex;align-items:center;gap:12px;min-width:0}
-#pwr-studio .pwr-brand-icon{display:grid;place-items:center;flex:0 0 45px;height:45px;border-radius:14px;background:linear-gradient(145deg,#9f66bb,#593974);font-size:24px;border:1px solid #d8aee4a8;box-shadow:inset 0 1px #ffffff44,0 5px 15px #0904116b}
-#pwr-studio .pwr-eyebrow{font-size:10px;color:#d9abf5;font-weight:800;letter-spacing:.17em;text-transform:uppercase}
-#pwr-studio .pwr-subhead{color:#cbb8dd;font-size:12px;margin-top:4px}
-#pwr-studio .pwr-top-actions{margin:0;gap:8px}
-#pwr-studio .pwr-top-actions button{min-height:40px;padding:9px 16px}
-#pwr-studio .pwr-save{background:linear-gradient(130deg,#ad6ac4,#8553a9);border-color:#d39bea;box-shadow:0 4px 14px #9a57ad34}
-#pwr-studio .pwr-state{display:inline-flex;align-items:center;gap:6px;background:#2f3e37;border:1px solid #527d6a;border-radius:99px;color:#bff2d0;font-size:11px;font-weight:700;letter-spacing:.05em;padding:6px 10px;white-space:nowrap}
-#pwr-studio .pwr-main{display:grid;grid-template-columns:minmax(320px,42%) minmax(0,58%);min-height:0;flex:1}
-#pwr-studio .pwr-stage{display:flex;flex-direction:column;min-width:0;min-height:0;padding:16px;gap:11px;background:linear-gradient(170deg,#292037,#1e182b);border-right:1px solid #463453}
-#pwr-studio .pwr-stage-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
-#pwr-studio .pwr-label-upper{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:#d5b8e6;font-weight:800}
-#pwr-studio .pwr-mini-tag{border:1px solid #ffffff50;background:#1a132396;border-radius:999px;padding:5px 10px;color:#f4deff;font-size:10px;font-weight:700;letter-spacing:.06em}
-#pwr-studio .pwr-scene{position:relative;flex:1;min-height:180px;min-width:0;overflow:auto;overscroll-behavior:contain;border:1px solid #9364b5;border-radius:16px;background:linear-gradient(140deg,#392d51,#76518c 45%,#261e38);box-shadow:inset 0 0 0 1px #ffffff1b,0 12px 30px #0c061d77;scrollbar-color:#a37cb9 #21182d;scrollbar-width:thin}
-#pwr-studio .pwr-scene-inner{display:grid;place-items:center;width:max-content;height:max-content;min-width:100%;min-height:100%;margin:auto}
-#pwr-studio .pwr-scene canvas{display:block;position:relative;flex:none;pointer-events:none;max-width:none;max-height:none;filter:drop-shadow(0 8px 9px #170a26a0)}
-/* 0.2.23: direct manipulation of optional clothing/accessories in the private preview */
-#pwr-studio .pwr-character-holder{position:relative;display:block;width:max-content;height:max-content;isolation:isolate}
-#pwr-studio .pwr-item-drag-overlay{position:absolute!important;inset:0!important;z-index:4!important;display:block!important;cursor:grab!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important;background:transparent!important;overscroll-behavior:contain!important;}
-#pwr-studio .pwr-item-drag-overlay.pwr-moving{cursor:grabbing!important;}
-#pwr-studio .pwr-drag-instruction{position:absolute;left:50%;top:10px;transform:translateX(-50%);padding:7px 11px;background:#23182fe6;border:1px solid #d5a1e4;border-radius:11px;color:#fff;font:700 11px/1.3 system-ui;white-space:nowrap;max-width:95%;pointer-events:none;box-shadow:0 3px 13px #070311a0;text-align:center;}
-#pwr-studio .pwr-drag-delta{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:#291c38ed;color:#f4d8ff;border:1px solid #af83ca;border-radius:10px;padding:5px 10px;font:700 11px/1.3 system-ui;white-space:nowrap;pointer-events:none;}
-#pwr-studio .pwr-drag-toggle.pwr-active{background:linear-gradient(130deg,#aa6fba,#624c9a)!important;border-color:#eac5ff!important;box-shadow:0 0 0 1px #e6b3ff6a!important;}
+#pwr-window {position:fixed;z-index:2147483001;right:18px;bottom:175px;max-height:78vh;overflow:auto;width:min(450px,calc(100vw - 20px));background:#0d0d11f7;border:2px solid #64008b;padding:16px;box-shadow:0 10px 38px #000d}
+#pwr-window h2{margin:0;font-size:19px}
+#pwr-window h3{margin:11px 0 7px}
+#pwr-window p{font-size:13px;color:#cbb5d6;line-height:1.4}
+#pwr-window label{display:block;margin:7px 0 4px}
+#pwr-window select,#pwr-window input[type=text]{width:100%;padding:9px;background:#19131c;color:white;border:1px solid #7e3c9c}
+#pwr-window button,#pwr-studio button {font:600 14px Arial,sans-serif;color:#f7edff;background:#27242b;border:2px solid #64008b;padding:9px;cursor:pointer;min-height:38px;border-radius:0;white-space:normal}
+#pwr-window button:hover,#pwr-studio button:hover{background:#563069}
+#pwr-window button:disabled,#pwr-studio button:disabled{opacity:.35;cursor:default}
+#pwr-window .pwr-head,#pwr-studio .pwr-head,#pwr-studio .pwr-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+#pwr-window .pwr-row,#pwr-studio .pwr-row{justify-content:flex-start;margin:8px 0}
+#pwr-window .pwr-badge{margin:8px 0;background:#32203e;padding:8px;color:#efdcff}
+#pwr-window .pwr-help{font-size:12px;color:#bba6c9}
+#pwr-studio{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;padding:6px;background:#08040ce8;overflow:hidden}
+#pwr-studio .pwr-shell{display:flex;flex-direction:column;width:min(1920px,100%);height:min(1000px,99dvh);border:2px solid #580079;overflow:hidden;background:#0f0c13f5}
+#pwr-studio .pwr-toolbar{flex:none;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 13px;min-height:55px;border-bottom:2px solid #65008e;background:#1e1325}
+#pwr-studio .pwr-heading{font-size:21px;font-weight:600;letter-spacing:.01em;white-space:normal}
+#pwr-studio .pwr-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#pwr-studio .pwr-actions button{font-size:13px;min-height:38px}
+#pwr-studio .pwr-accept{background:#165d22!important;border-color:#42ad44!important}
+#pwr-studio .pwr-cancel{background:#6b111a!important;border-color:#c13c4e!important}
+#pwr-studio .pwr-toolbar .pwr-save-state{font-size:11px;color:#d5b5e1}
+#pwr-studio .pwr-alert{flex:none;background:#532e35;padding:8px 12px;font-size:12px;border-bottom:1px solid #c77e8f}
+#pwr-studio .pwr-main{display:grid;grid-template-columns:minmax(200px,43%) minmax(310px,57%);flex:1;min-height:0}
+#pwr-studio .pwr-left{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;background:linear-gradient(90deg,#141016dd,#201325ee)}
+#pwr-studio .pwr-preview-bar{flex:none;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #6a267f;font-size:12px}
+#pwr-studio .pwr-scene{position:relative;flex:1;min-height:0;overflow:auto;border:0;background:linear-gradient(110deg,#160f19b0,#28202bb5)}
+#pwr-studio .pwr-scene-inner{width:max-content;height:max-content;min-height:100%;min-width:100%;display:grid;place-items:center}
+#pwr-studio .pwr-scene canvas.pwr-character-canvas{display:block;position:relative;max-height:none;max-width:none;pointer-events:none;filter:drop-shadow(0 4px 10px #000b)}
+#pwr-studio .pwr-drag-catcher{position:absolute;inset:0;z-index:5;touch-action:none;cursor:move}
+#pwr-studio .pwr-preview-tools{flex:none;display:flex;gap:8px;padding:7px 10px;align-items:center;border-top:1px solid #501273;font-size:12px;flex-wrap:wrap}
+#pwr-studio .pwr-preview-tools select{max-width:145px}
+#pwr-studio .pwr-right{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:#121018;border-left:2px solid #4d146a}
+#pwr-studio .pwr-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding:8px 9px;background:#1e1427;border-bottom:1px solid #65118e;flex:none}
+#pwr-studio .pwr-filter button{min-width:44px}
+#pwr-studio button.pwr-selected{background:#7100a0;border-color:#aa44d7;color:white}
+#pwr-studio .pwr-search{width:100%;min-height:36px;padding:7px 10px;background:#17121c;border:1px solid #7800a3;color:white;font:14px Arial}
+#pwr-studio .pwr-right-head{flex:none;display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#19121f;border-bottom:1px solid #58116e;gap:8px}
+#pwr-studio .pwr-right-head strong{font-size:16px}
+#pwr-studio .pwr-list-scroll{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#8100b0 #1e1324}
+#pwr-studio .pwr-slot{display:grid;grid-template-columns:minmax(0,1fr) 32px 35px;gap:5px;align-items:center;margin:5px 9px;padding:0}
+#pwr-studio .pwr-slot .pwr-slot-main{display:flex;align-items:center;gap:5px;min-width:0;padding:0!important;min-height:47px;background:#25242a!important}
+#pwr-studio .pwr-slot .pwr-slot-main span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:clamp(11px,1vw,14px)}
+#pwr-studio .pwr-slot .pwr-slot-arrow{background:#211a27;border:0;padding:4px 7px;min-height:40px;font-size:16px}
+#pwr-studio .pwr-slot .pwr-swatch{width:32px;height:36px;border:2px solid #6800a0;border-radius:50%;padding:0;box-shadow:inset 0 0 0 3px #ffffff30}
+#pwr-studio .pwr-slot-main.pwr-active{border-color:#b870e0;background:#5b296b!important}
+#pwr-studio .pwr-catalog{padding:8px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-content:start}
+#pwr-studio .pwr-catalog-tile{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;padding:5px!important;overflow:hidden;min-height:158px;background:#262229!important}
+#pwr-studio .pwr-catalog-tile.pwr-selected{background:#2d5687!important}
+#pwr-studio .pwr-tile-art{height:111px;min-height:111px;display:grid;place-items:center;overflow:hidden;background:#1f1f24;position:relative}
+#pwr-studio .pwr-tile-art img{width:100%;height:100%;object-fit:contain}
+#pwr-studio .pwr-tile-art canvas{width:100%;height:100%;display:block;object-fit:contain}
+#pwr-studio .pwr-tile-placeholder{font-size:25px;color:#9765b2;line-height:1;text-align:center}
+#pwr-studio .pwr-tile-label{font-size:12px;line-height:1.15;text-align:center;word-break:break-word}
+#pwr-studio .pwr-tile-sub{font-size:10px;color:#c9b4d9;text-align:center;overflow-wrap:anywhere}
+#pwr-studio .pwr-pages{flex:none;display:flex;gap:8px;padding:7px;justify-content:center;align-items:center;background:#201425;border-top:1px solid #7d11a6}
+#pwr-studio .pwr-setting-body{padding:12px;display:flex;flex-direction:column;gap:12px}
+#pwr-studio .pwr-setting-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-height:35px}
+#pwr-studio .pwr-setting-row label{flex:0 0 140px;font-size:13px}
+#pwr-studio .pwr-setting-row input[type=color]{height:35px;width:54px}
+#pwr-studio .pwr-setting-row input[type=text],#pwr-studio .pwr-setting-row input[type=number]{flex:1;min-width:100px}
+#pwr-studio input[type=text],#pwr-studio input[type=number],#pwr-studio select,#pwr-studio input[type=range]{background:#211b27;border:1px solid #7300aa;color:white;padding:7px;min-height:33px;font:13px Arial;max-width:100%}
+#pwr-studio .pwr-color-surface{height:116px;border:1px solid #ad5bd2;position:relative;background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,var(--pwr-hue,#f0f));cursor:crosshair;touch-action:none}
+#pwr-studio .pwr-hue{width:100%;height:17px;background:linear-gradient(90deg,red,yellow,lime,cyan,blue,magenta,red);appearance:none;padding:0!important;border:0!important}
+#pwr-studio .pwr-hue::-webkit-slider-thumb{appearance:none;width:13px;height:22px;background:#fff;border:2px solid #555}
+#pwr-studio .pwr-note{padding:6px;font-size:11px;color:#c5b1d0;line-height:1.3}
+#pwr-studio .pwr-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 11px;border-top:2px solid #580077;background:#1d1423;flex-wrap:wrap}
+#pwr-studio .pwr-bottom button{font-size:12px;min-height:33px}
+#pwr-studio .pwr-pill{font-size:11px;background:#3c194e;padding:6px;color:#e2c1ef}
+#pwr-studio .pwr-save-row{display:flex;gap:5px;align-items:center}
+#pwr-studio .pwr-save-row input{flex:1}
+#pwr-studio .pwr-preset{display:flex;gap:5px;align-items:center;padding:6px;border:1px solid #54286d}
+#pwr-studio .pwr-preset span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:850px){#pwr-studio .pwr-main{grid-template-columns:42% 58%}#pwr-studio .pwr-toolbar{padding:5px}#pwr-studio .pwr-heading{font-size:15px}#pwr-studio .pwr-catalog{grid-template-columns:repeat(2,minmax(0,1fr))}#pwr-studio .pwr-tile-art{height:90px;min-height:90px}#pwr-studio .pwr-catalog-tile{min-height:133px}}
+@media(max-width:560px){#pwr-studio .pwr-main{display:flex;flex-direction:column}#pwr-studio .pwr-left{min-height:32%;height:32%;flex:0 0 32%}#pwr-studio .pwr-right{flex:1;min-height:0;border-left:0;border-top:2px solid #580077}#pwr-studio .pwr-preview-tools{display:none}#pwr-studio .pwr-heading{font-size:14px}#pwr-studio .pwr-actions button{font-size:11px;min-height:32px;padding:5px}#pwr-studio .pwr-catalog{grid-template-columns:repeat(3,minmax(0,1fr))}#pwr-studio .pwr-tile-art{height:75px;min-height:75px}#pwr-studio .pwr-catalog-tile{min-height:117px}#pwr-studio .pwr-setting-row label{flex-basis:80px}}
 
-#pwr-studio .pwr-backdrop-card{flex:0 0 auto;border:1px solid #574064;border-radius:14px;padding:12px;background:#231b30;box-shadow:inset 0 1px #ffffff0b}
-#pwr-studio .pwr-backdrop-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:8px 0 0}
-#pwr-studio .pwr-backdrop-row select{width:auto;flex:1;min-width:140px;max-width:255px}
-#pwr-studio .pwr-size-select{max-width:110px!important;flex:0 0 110px!important}
-#pwr-studio .pwr-backdrop-card .pwr-help{margin:8px 1px 0}
-#pwr-studio .pwr-backdrop-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
-#pwr-studio .pwr-custom-toggle{padding:5px 9px!important;min-height:26px!important;font-size:11px!important}
-#pwr-studio .pwr-background[hidden]{display:none!important}
-#pwr-studio .pwr-background{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 0}
-#pwr-studio .pwr-background input[type=text]{flex:1;min-width:150px}
-#pwr-studio .pwr-background input[type=file]{max-width:155px;color:#dccae5;font-size:11px}
-#pwr-studio .pwr-side{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;gap:11px;padding:16px 17px;background:linear-gradient(165deg,#191422,#17111f);scrollbar-color:#704d81 #201528;scrollbar-width:thin}
-#pwr-studio .pwr-tabs{display:flex;gap:6px;flex:0 0 auto;flex-wrap:wrap;background:#251a30;border:1px solid #584268;padding:5px;border-radius:13px}
-#pwr-studio .pwr-tab{flex:1;min-width:66px;background:transparent!important;border:1px solid transparent!important;color:#c8b4d6;border-radius:9px;box-shadow:none}
-#pwr-studio .pwr-tab:hover{background:#44314f!important;color:#fff}
-#pwr-studio .pwr-tab.pwr-active{background:linear-gradient(145deg,#9a63b4,#663e83)!important;border-color:#d5a4ed!important;color:#fff;box-shadow:0 3px 10px #09041180,inset 0 1px #ffffff22}
-#pwr-studio .pwr-section{background:#251c30;border:1px solid #543f63;border-radius:14px;padding:12px 13px;box-shadow:inset 0 1px #ffffff10;min-width:0}
-#pwr-studio .pwr-section-top{display:flex;align-items:center;gap:9px;margin-bottom:10px}
-#pwr-studio .pwr-step{display:grid;place-items:center;width:26px;height:26px;flex:0 0 26px;border-radius:8px;background:#513562;color:#edc5ff;font-size:11px;font-weight:800;border:1px solid #8f6a9f}
-#pwr-studio .pwr-section .pwr-head{margin-bottom:10px}
-#pwr-studio .pwr-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:138px;overflow:auto;padding:2px;scrollbar-color:#755384 #231931;scrollbar-width:thin}
-#pwr-studio .pwr-group{min-height:42px;padding:9px 5px!important;font-size:11px!important;text-align:center;overflow-wrap:anywhere;background:#322640!important;border-color:#634a76!important;color:#dbcee8}
-#pwr-studio .pwr-group:hover{background:#533b66!important}
-#pwr-studio .pwr-group.pwr-active{background:linear-gradient(145deg,#8554a1,#684582)!important;border-color:#d6a9ea!important;box-shadow:0 0 0 1px #d6a9ea22,inset 0 1px #ffffff3b}
-#pwr-studio .pwr-assets-section{display:flex;flex-direction:column;flex:1 1 220px;min-height:210px;overflow:hidden}
-#pwr-studio .pwr-assets-section input[type=search]{margin-bottom:9px}
-#pwr-studio .pwr-asset-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(72px,auto);gap:8px;overflow:auto;min-height:85px;align-content:start;flex:1;padding:2px 3px;scrollbar-color:#755384 #231931;scrollbar-width:thin}
-#pwr-studio .pwr-asset{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;font-size:11px!important;background:#30253b!important;border-color:#614c73!important;overflow-wrap:anywhere;text-align:center;position:relative}
-#pwr-studio .pwr-asset:hover{background:#493355!important}
-#pwr-studio .pwr-asset.pwr-active{background:linear-gradient(145deg,#74478a,#523568)!important;border-color:#e8b7f6!important;box-shadow:inset 0 0 0 1px #deb1e733,0 0 12px #a765c322}
-#pwr-studio .pwr-asset.pwr-active:after{content:'✓';position:absolute;top:5px;right:7px;font-size:12px;color:#fad7ff}
-#pwr-studio .pwr-asset-icon{font-size:18px;opacity:.8}
-#pwr-studio .pwr-asset-preview{display:block;width:auto;max-width:100%;height:100px;object-fit:contain;pointer-events:none}
-#pwr-studio .pwr-pager{margin:9px 0 0!important;justify-content:center;gap:12px!important;color:#cab9d7;font-size:12px}
-#pwr-studio .pwr-pager button{min-width:38px;min-height:33px}
-#pwr-studio .pwr-colors-section{flex:0 0 auto}
-#pwr-studio .pwr-colorbar{display:flex;gap:9px;align-items:end;flex-wrap:wrap}
-#pwr-studio .pwr-colorbar .pwr-grow{flex:1;min-width:140px}
-#pwr-studio .pwr-colorbar input[type=color]{height:40px;width:43px;padding:2px;border:1px solid #a37db9;background:#32243f;border-radius:10px;cursor:pointer}
-#pwr-studio .pwr-bottom{flex:0 0 auto;border-top:1px solid #5e466f;padding:11px 17px;background:#22192c}
-#pwr-studio .pwr-bottom-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-#pwr-studio .pwr-bottom .pwr-row{margin:0}
-#pwr-studio .pwr-bottom .pwr-help{margin:5px 0 0}
-#pwr-studio .pwr-pale{color:#ffdac9;background:linear-gradient(125deg,#50343d,#442737);border:1px solid #a85d75;border-radius:12px;padding:11px;margin:11px 0 0}
-#pwr-studio .pwr-pale .pwr-row{margin:7px 0 0}
-#pwr-studio .pwr-pale button{font-size:12px}
-@media (max-width:920px){#pwr-studio .pwr-main{grid-template-columns:minmax(265px,40%) minmax(0,60%)}#pwr-studio .pwr-side{padding:12px}#pwr-studio .pwr-stage{padding:12px}}
-@media (max-width:700px){#pwr-studio{padding:4px}#pwr-studio .pwr-shell{height:99dvh;border-radius:13px}#pwr-studio .pwr-toolbar{padding:9px 11px}#pwr-studio .pwr-brand-icon{width:35px;height:35px;flex-basis:35px;font-size:20px}#pwr-studio h2{font-size:16px}#pwr-studio .pwr-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(220px,43%) minmax(300px,57%)}#pwr-studio .pwr-stage{padding:9px;gap:6px;overflow-y:auto;scrollbar-width:thin}#pwr-studio .pwr-scene{flex:0 0 190px;min-height:190px}#pwr-studio .pwr-stage-title{display:none}#pwr-studio .pwr-backdrop-card{padding:8px}#pwr-studio .pwr-backdrop-row{gap:6px}#pwr-studio .pwr-backdrop-row select{max-width:200px;min-width:100px}#pwr-studio .pwr-background input[type=file]{max-width:120px}#pwr-studio .pwr-side{padding:9px;gap:7px}#pwr-studio .pwr-section{padding:8px}#pwr-studio .pwr-groups{max-height:90px}#pwr-studio .pwr-asset-grid{grid-auto-rows:minmax(54px,auto)}#pwr-studio .pwr-bottom{padding:8px 11px}#pwr-studio .pwr-top-actions button{min-height:32px;padding:7px 9px;font-size:11px}}
-
-/* Atelier v0.2.4: expandable sections, saved looks and hex wheel. */
-#pwr-studio .pwr-details{display:block;min-width:0}
-#pwr-studio .pwr-details>summary{display:flex;align-items:center;gap:9px;list-style:none;cursor:pointer;user-select:none;min-height:26px}
-#pwr-studio .pwr-details>summary::-webkit-details-marker{display:none}
-#pwr-studio .pwr-details>summary:after{content:'▾';margin-left:auto;color:#d2b7e5;transition:transform .15s}
-#pwr-studio .pwr-details:not([open])>summary:after{transform:rotate(-90deg)}
-#pwr-studio .pwr-details>.pwr-section-body{margin-top:10px}
-#pwr-studio .pwr-saved-section{border-color:#836098;background:linear-gradient(155deg,#2b1d3a,#231a31)}
-#pwr-studio .pwr-preset-entry{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center;padding:8px;border:1px solid #554063;border-radius:11px;margin-top:7px;background:#1c1526}
-#pwr-studio .pwr-preset-entry input{min-width:0;height:35px!important}
-#pwr-studio .pwr-preset-entry button{padding:7px 9px;min-height:33px}
-#pwr-studio .pwr-preset-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-#pwr-studio .pwr-preset-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-#pwr-studio .pwr-preset-row input{flex:1;min-width:140px}
-#pwr-studio .pwr-colorbar{align-items:flex-start}
-#pwr-studio .pwr-hex-picker{border:1px solid #85619d;border-radius:13px;background:#191122;padding:11px;margin-top:11px}
-#pwr-studio .pwr-hex-head{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-#pwr-studio .pwr-hex-chip{display:inline-block;width:31px;height:31px;border-radius:9px;border:2px solid #f7dcff;box-shadow:0 0 0 1px #6a4c7b}
-#pwr-studio .pwr-sv-canvas{display:block;width:100%;height:130px;touch-action:none;cursor:crosshair;border-radius:10px;border:1px solid #9577ae;margin-top:10px}
-#pwr-studio .pwr-hue{width:100%;height:18px;accent-color:#ac67ca;cursor:pointer;margin-top:12px;appearance:none;background:linear-gradient(to right,red,#ff0,lime,cyan,blue,magenta,red);border-radius:99px;border:1px solid #cba4dd}
-#pwr-studio .pwr-hue::-webkit-slider-thumb{appearance:none;width:17px;height:23px;background:#fff;border:2px solid #654376;border-radius:7px}
-#pwr-studio .pwr-hue::-moz-range-thumb{width:15px;height:21px;background:#fff;border:2px solid #654376;border-radius:7px}
-#pwr-studio .pwr-swatch-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:10px}
-#pwr-studio .pwr-swatch-grid button{min-width:0;min-height:27px;padding:0;border:1px solid #e0cbf2ad;border-radius:7px;box-shadow:inset 0 0 0 1px #140b1980}
-#pwr-studio .pwr-layers{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
-#pwr-studio .pwr-layer{padding:6px 10px!important;min-height:30px!important;font-size:12px!important}
-#pwr-studio .pwr-layer.pwr-active{outline:2px solid #efb9ff;border-color:#efb9ff}
-#pwr-studio .pwr-color-buttons{display:flex;align-items:center;gap:7px;margin-top:10px;flex-wrap:wrap}
-#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(3,minmax(0,1fr))}
-#pwr-studio .pwr-asset.pwr-has-preview{min-height:154px;gap:5px}
-#pwr-studio .pwr-asset-preview{height:120px;max-height:120px;width:auto;max-width:100%;margin:0 auto;object-fit:contain}
-#pwr-studio .pwr-asset .pwr-preview-placeholder{height:120px;display:grid;place-items:center;color:#bda0cb;font-size:11px}
-#pwr-studio .pwr-asset-label{font-size:11px;line-height:1.2;overflow-wrap:anywhere}
-@media (max-width:700px){#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}#pwr-studio .pwr-preset-entry{grid-template-columns:minmax(0,1fr) auto}#pwr-studio .pwr-preset-entry .pwr-danger{grid-column:2}}
-
-/* v0.2.6 — readable asset names and mode-aware character closeups. */
-#pwr-studio .pwr-asset-visual{position:relative;overflow:hidden;width:100%;border-radius:10px;background:radial-gradient(ellipse at 50% 38%,#68517a,#281c33 82%);isolation:isolate;flex:0 0 auto}
-#pwr-studio .pwr-asset-visual canvas.pwr-asset-preview{width:100%;height:165px;display:block;border-radius:0;background:transparent!important;object-fit:contain}
-#pwr-studio .pwr-asset-visual.pwr-focus-hair canvas{height:194px}
-#pwr-studio .pwr-asset-visual.pwr-focus-body canvas{height:256px}
-#pwr-studio .pwr-asset-visual.pwr-focus-upper-body canvas,#pwr-studio .pwr-asset-visual.pwr-focus-lower-body canvas{height:192px}
-#pwr-studio .pwr-asset-raw-name{position:absolute;left:0;right:0;bottom:0;padding:7px 8px 6px;text-align:center;font-size:12px;font-weight:750;line-height:1.2;letter-spacing:.01em;color:#fff;overflow-wrap:anywhere;text-shadow:0 1px 4px #0c041c;background:linear-gradient(0deg,#140c1cf2,#140c1cbd 78%,#140c1c00);pointer-events:none;max-height:50%;overflow:hidden}
-#pwr-studio .pwr-asset-hint{font-size:11px;color:#ddcaed;line-height:1.22;min-height:0;text-align:center}
-#pwr-studio .pwr-asset.pwr-has-preview{min-height:0;justify-content:flex-start;padding:8px!important;gap:7px}
-#pwr-studio .pwr-asset.pwr-has-preview .pwr-asset-label{min-height:0;font-size:11px}
-#pwr-studio .pwr-preview-failed{display:block;position:absolute;top:33%;left:0;right:0;text-align:center;font-size:11px;color:#e4c6ef;pointer-events:none}
-#pwr-studio .pwr-preview-loading{display:grid;place-items:center;font-size:11px;color:#f0d4ff;min-height:100px}
-@media (max-width:700px){
-  #pwr-studio .pwr-asset-visual canvas.pwr-asset-preview{height:130px}
-  #pwr-studio .pwr-asset-visual.pwr-focus-hair canvas{height:170px}
-  #pwr-studio .pwr-asset-visual.pwr-focus-body canvas{height:220px}
-  #pwr-studio .pwr-asset-visual.pwr-focus-upper-body canvas,#pwr-studio .pwr-asset-visual.pwr-focus-lower-body canvas{height:165px}
-  #pwr-studio .pwr-asset-raw-name{font-size:10.5px;padding:5px 4px}
-}
-
-/* v0.2.4 — bigger, item-focused previews and a viewport-aware color tray. */
-#pwr-studio .pwr-assets-section{flex:0 0 auto;min-height:0;overflow:visible}
-#pwr-studio .pwr-assets-section>.pwr-section-body{min-height:0;overflow:visible}
-#pwr-studio .pwr-asset-grid{overflow:visible;flex:none;grid-auto-rows:auto;gap:10px;padding:3px 2px}
-#pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}
-#pwr-studio .pwr-asset.pwr-has-preview{min-height:200px;padding:10px!important;gap:9px;justify-content:space-between}
-#pwr-studio .pwr-asset-preview{width:100%;height:165px;max-height:none;max-width:100%;object-fit:contain;object-position:center;display:block;border-radius:9px;background:radial-gradient(ellipse at 50% 38%,#665079,#281d33 80%)}
-#pwr-studio .pwr-asset .pwr-preview-placeholder{height:165px;width:100%;border-radius:9px;background:#24192d;display:grid;place-items:center;font-size:16px}
-#pwr-studio .pwr-asset-label{min-height:2.3em;display:grid;place-items:center;font-size:12px;font-weight:650;line-height:1.15;word-break:normal}
-#pwr-studio .pwr-fit-row{margin-top:8px;flex-wrap:nowrap}
-#pwr-studio .pwr-fit-row select{flex:1;width:100%;min-width:0;max-width:none}
-@media (max-width:700px){#pwr-studio .pwr-fit-row{flex-wrap:wrap}}
-#pwr-studio .pwr-asset-copy{display:grid;gap:2px;align-self:stretch}
-#pwr-studio .pwr-asset-title{display:grid;place-items:center;font-size:12px;font-weight:700;line-height:1.18;color:#f7efff;text-align:center;overflow-wrap:anywhere;min-height:1.2em}
-#pwr-studio .pwr-asset-sub{display:grid;place-items:center;font-size:10.5px;line-height:1.18;color:#cbb6d8;text-align:center;overflow-wrap:anywhere;opacity:.95;min-height:1.1em}
-#pwr-studio .pwr-asset.pwr-active{outline:1px solid #e7b5f7}
-#pwr-studio .pwr-asset-grid.pwr-with-previews .pwr-asset{overflow:hidden}
-#pwr-studio .pwr-preview-hint{color:#ceb4e1;font-size:11px;font-weight:550}
-/* Swatches MUST not inherit the global gradient button background. */
-#pwr-studio .pwr-swatch-grid button,#pwr-studio .pwr-swatch-grid button:hover,#pwr-studio .pwr-swatch-grid button:focus{
-  background:var(--pwr-swatch,#745083)!important;background-image:none!important;
-  border:1px solid #e0cbf2cc!important;box-shadow:inset 0 0 0 1px #160d22a6!important;
-  min-height:32px;padding:0!important;border-radius:7px;
-}
-#pwr-studio .pwr-swatch-grid button:hover{outline:2px solid #e5c0ff;outline-offset:1px;transform:none}
-#pwr-studio .pwr-swatch-heading{font-weight:750;color:#d8c5e5;margin-top:10px;font-size:11px;letter-spacing:.04em}
-/* Color controls are above the list, and the expanded editor floats ABOVE the item cards.
-   It is intentionally closed by default so it does not obscure item selection. */
-#pwr-studio .pwr-colors-section{position:sticky;top:0;z-index:100;flex:0 0 auto;
-  background:linear-gradient(125deg,#362344,#241b31);border-color:#9f71b9;
-  box-shadow:0 8px 22px #0b041ab8;overflow:visible}
-#pwr-studio .pwr-colors-section[open]{z-index:101}
-#pwr-studio .pwr-colors-section>.pwr-section-body{
-  position:fixed;top:max(88px,13dvh);right:max(20px,calc((100vw - 1480px)/2 + 25px));width:min(460px,calc(100vw - 28px));
-  max-height:min(69dvh,620px);overflow-y:auto;overscroll-behavior:contain;
-  background:#21172d;border:1px solid #a67bc0;border-radius:14px;
-  padding:12px;box-shadow:0 18px 45px #080311ed,0 0 0 1px #ffffff14;
-  scrollbar-color:#8b68a3 #22152e;z-index:102
-}
-#pwr-studio .pwr-colors-section:not([open])>.pwr-section-body{display:none}
-#pwr-studio .pwr-hex-picker{margin-top:7px}
-#pwr-studio .pwr-picker-close-row{display:flex;justify-content:flex-end;align-items:center;position:sticky;top:-12px;z-index:4;padding:4px 0 7px;background:#21172d}
-#pwr-studio .pwr-swatch-grid{grid-template-columns:repeat(8,minmax(0,1fr))}
-@media (max-width:700px){
-  #pwr-studio .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #pwr-studio .pwr-asset.pwr-has-preview{min-height:150px;padding:6px!important}
-  #pwr-studio .pwr-asset-preview,#pwr-studio .pwr-asset .pwr-preview-placeholder{height:115px}
-  #pwr-studio .pwr-asset-title{font-size:11px}
-  #pwr-studio .pwr-asset-sub{font-size:10px}
-  #pwr-studio .pwr-colors-section>.pwr-section-body{top:14dvh;right:12px;max-height:68dvh}
-}
-
-/* v0.2.10: keep image and both labels visible; never present empty cards silently. */
-#pwr-studio .pwr-asset-visual{position:relative;min-height:120px}
-#pwr-studio .pwr-asset-visual .pwr-preview-pending{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;color:#d6b7e8;font-size:12px;background:#261b32ba;pointer-events:none}
-#pwr-studio .pwr-asset-visual .pwr-preview-unavailable{color:#e3bbce;background:#251b30f2}
-#pwr-studio .pwr-asset-copy{padding:0 4px 3px}
-#pwr-studio .pwr-asset-title{font-size:13px}
-#pwr-studio .pwr-asset-sub{font-size:11px;color:#cfb6e0}
-
-/* v0.2.14: chest-size comparison for Bra8 and other breast-sized items. */
-#pwr-studio .pwr-bra-compare{border:1px solid #8b61a7;border-radius:13px;padding:10px;margin-top:9px;background:#21162e}
-#pwr-studio .pwr-bra-compare h3{font-size:12px;letter-spacing:.02em;margin:0 0 5px}
-#pwr-studio .pwr-bra-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}
-#pwr-studio .pwr-bra-choice{padding:6px!important;min-width:0!important;background:#291d37!important;display:grid;gap:5px;justify-items:center;overflow:hidden}
-#pwr-studio .pwr-bra-choice.pwr-active{border:2px solid #f0b7ff!important;background:#64437a!important}
-#pwr-studio .pwr-bra-choice canvas{width:100%;height:112px;object-fit:contain;border-radius:7px;background:radial-gradient(ellipse at 50% 35%,#785a91,#241a32 86%)}
-#pwr-studio .pwr-bra-choice span{font-size:11px;line-height:1.2;overflow-wrap:anywhere;text-align:center}
-#pwr-studio .pwr-bra-compare .pwr-help{margin:7px 0 0}
-@media(max-width:650px){#pwr-studio .pwr-bra-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
-
-/* v0.2.18 — usability: undo/redo, side-by-side-like public comparison, favorites */
-#pwr-studio .pwr-history-btn{min-height:34px!important;padding:7px 11px!important}
-#pwr-studio .pwr-compare-btn{padding:6px 9px!important;min-height:29px!important;font-size:11px!important}
-#pwr-studio .pwr-public-tag{color:#ffdfbb;border-color:#b27c65;background:#352637a8}
-#pwr-studio .pwr-asset-card{position:relative;min-width:0;min-height:0;display:flex;align-items:stretch}
-#pwr-studio .pwr-asset-card>.pwr-asset{width:100%;height:100%;min-width:0}
-#pwr-studio .pwr-star{position:absolute;top:12px;right:12px;z-index:2;min-width:32px!important;min-height:31px!important;padding:3px 7px!important;border:1px solid #bc89d7!important;background:#27192dcc!important;color:#ead0f7!important;font-size:18px!important;line-height:1!important;border-radius:10px!important;box-shadow:0 1px 9px #0d051a8c!important}
-#pwr-studio .pwr-star.pwr-star-active{color:#ffe4a5!important;background:#6c4a49ed!important;border-color:#ffe1a3!important}
-#pwr-studio .pwr-star:hover{transform:none!important;background:#764b82!important}
-#pwr-studio .pwr-favorite-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:7px 0}
-#pwr-studio .pwr-favorite-tools .pwr-secondary{min-height:30px;padding:5px 10px;font-size:11px}
-#pwr-studio .pwr-favorite-tools .pwr-active{background:#64416f!important;border-color:#dcb1fa!important}
-#pwr-studio .pwr-empty-results{border:1px dashed #785c86;padding:18px;text-align:center;border-radius:10px;color:#d4c0df;font-size:12px}
-@media(max-width:700px){#pwr-studio .pwr-star{top:7px;right:7px;min-width:29px!important;min-height:29px!important}}
-/* v0.2.17 — safe, detached extended item variants. */
-#pwr-studio .pwr-use-section{border-color:#795c96;background:linear-gradient(145deg,#2b2039,#1f192c)}
-#pwr-studio .pwr-use-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
-#pwr-studio .pwr-use-choice{min-height:45px!important;white-space:normal;text-align:center;overflow-wrap:anywhere;padding:8px!important}
-#pwr-studio .pwr-use-choice.pwr-active{outline:2px solid #e7bcfb;background:linear-gradient(135deg,#ae7bca,#754492)!important}
-#pwr-studio .pwr-use-status{padding:8px 10px;background:#1b1227;border:1px solid #58436e;border-radius:9px;color:#f2dcff;font-size:12px}
-@media(max-width:600px){#pwr-studio .pwr-use-choices{grid-template-columns:1fr}}
-/* v0.2.16 — compact AEE-inspired private item tuning. */
-#pwr-studio .pwr-tuning-section{border-color:#7e5b9a;background:linear-gradient(155deg,#2b203b,#21182e)}
-#pwr-studio .pwr-tune-head{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-#pwr-studio .pwr-tune-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-#pwr-studio .pwr-tune-ctrl{min-width:0;padding:9px;background:#1b1425;border:1px solid #564467;border-radius:11px}
-#pwr-studio .pwr-tune-label{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:#e8d8f3;font-weight:650;margin-bottom:7px}
-#pwr-studio .pwr-tune-val{color:#d9b2f3;font-variant-numeric:tabular-nums}
-#pwr-studio .pwr-tune-ctrl input[type=range]{width:100%;accent-color:#c983e5;cursor:pointer}
-#pwr-studio .pwr-tune-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-#pwr-studio .pwr-tune-actions button{flex:1;min-width:110px}
-#pwr-studio .pwr-tune-checks{display:flex;flex-wrap:wrap;gap:15px;margin:7px 0}
-#pwr-studio .pwr-tune-checks label{display:flex;align-items:center;gap:6px}
-#pwr-studio .pwr-tune-ctrl[aria-disabled=true]{opacity:.55}
-@media(max-width:680px){#pwr-studio .pwr-tune-grid{grid-template-columns:1fr}}
-
-/* 0.2.20: Avoid free-floating BC canvases when bra comparisons are present. */
-#pwr-studio .pwr-bra-compare{display:block;position:relative!important;min-width:0;max-width:100%;overflow:hidden!important;contain:layout paint;}
-#pwr-studio .pwr-bra-compare>summary{display:flex;align-items:center;gap:8px;min-height:30px;cursor:pointer;list-style:none;font-weight:750;font-size:12px;user-select:none;}
-#pwr-studio .pwr-bra-compare>summary::-webkit-details-marker{display:none}
-#pwr-studio .pwr-bra-compare>summary::after{content:'▾';margin-left:auto;color:#d9b2f3}
-#pwr-studio .pwr-bra-compare:not([open])>summary::after{content:'▸'}
-#pwr-studio .pwr-bra-compare:not([open])>.pwr-bra-compare-body{display:none!important}
-#pwr-studio .pwr-bra-compare-body{min-width:0;max-width:100%;padding-top:4px;overflow:hidden}
-#pwr-studio .pwr-bra-choices{min-width:0;max-width:100%;overflow:hidden;grid-template-columns:repeat(3,minmax(0,1fr))}
-#pwr-studio .pwr-bra-choice{position:relative!important;inset:auto!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;contain:layout paint;}
-#pwr-studio .pwr-bra-choice canvas{position:static!important;inset:auto!important;display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;height:112px!important;max-height:112px!important;box-sizing:border-box!important;transform:none!important;z-index:auto!important;float:none!important;}
-@media(max-width:650px){#pwr-studio .pwr-bra-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
-
-
-/* 0.2.21: Native BC ColorIndex based multi-layer palette. */
-#pwr-studio .pwr-layer-head{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap;margin:8px 0 6px}
-#pwr-studio .pwr-layer-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:6px 0 10px}
-#pwr-studio button.pwr-layer-tile{display:flex;align-items:center;gap:9px;text-align:left;min-width:0;min-height:53px;padding:7px 9px!important;background:#30223f!important;border:1px solid #71538a!important;border-radius:10px}
-#pwr-studio button.pwr-layer-tile:hover{background:#463056!important}
-#pwr-studio button.pwr-layer-tile.pwr-active{background:#56346c!important;border-color:#e1a9f4!important;box-shadow:0 0 0 1px #d6a0e45a}
-#pwr-studio .pwr-layer-swatch{width:32px;height:32px;min-width:32px;flex:none;border:1px solid #dec0ef;border-radius:8px;background:repeating-conic-gradient(#c8b1d8 0% 25%,#57446b 0% 50%) 50%/12px 12px;box-shadow:inset 0 0 0 1px #180d2699}
-#pwr-studio .pwr-layer-info{display:flex;flex-direction:column;align-items:flex-start;min-width:0;line-height:1.3;gap:3px}
-#pwr-studio .pwr-layer-title{font-size:12px;font-weight:750;overflow-wrap:anywhere}
-#pwr-studio .pwr-layer-detail{font-size:10px;color:#d5c1e4;overflow-wrap:anywhere}
-#pwr-studio .pwr-layer-editing{font-size:11px;color:#edd4ff;font-weight:700;margin:5px 0 0}
-#pwr-studio .pwr-color-buttons button{white-space:normal}
-@media(max-width:500px){#pwr-studio .pwr-layer-list{grid-template-columns:1fr}}
-
-
-/* v0.2.22: The HSV pad is DOM/CSS rather than a canvas.
-   BC and AEE can style or capture canvas nodes, so keep the color pad isolated. */
-#pwr-studio .pwr-hex-picker{position:relative;min-width:0;max-width:100%;overflow:visible;}
-#pwr-studio .pwr-hex-picker div.pwr-sv-canvas{
-  display:block!important;position:relative!important;inset:auto!important;
-  top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;
-  width:100%!important;max-width:100%!important;height:130px!important;
-  min-height:130px!important;box-sizing:border-box!important;margin:10px 0 0!important;
-  border:1px solid #9577ae!important;border-radius:10px!important;
-  overflow:hidden!important;isolation:isolate;z-index:auto!important;
-  transform:none!important;filter:none!important;float:none!important;
-  touch-action:none!important;cursor:crosshair;
-  background-image:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),linear-gradient(to right,#f00,#f00);
-}
-#pwr-studio .pwr-sv-canvas .pwr-sv-marker{
-  display:block;position:absolute!important;width:14px;height:14px;
-  border-radius:50%;border:2px solid white;outline:1px solid #26142e;
-  box-shadow:0 0 0 1px #38274499,0 1px 5px #180d28b5;
-  transform:translate(-50%,-50%)!important;
-  z-index:1;pointer-events:none;
-}
-#pwr-studio .pwr-colors-section>.pwr-section-body{overflow-x:hidden;}
-#pwr-studio .pwr-hex-picker .pwr-hue{position:relative!important;inset:auto!important;display:block!important;}
-
-
-/* 0.2.24: Native-inspired BC wardrobe composition. No native inventory or dress APIs are called. */
-#pwr-studio.pwr-native{padding:7px;background:#07030ac9}
-#pwr-studio.pwr-native .pwr-shell{width:min(1660px,100%);height:min(960px,99dvh);border-radius:9px;border:1px solid #8d48b8;background:#100b18}
-#pwr-studio.pwr-native .pwr-toolbar{padding:9px 14px;background:linear-gradient(90deg,#130b1de3,#2c193c);border-bottom:1px solid #7836a0}
-#pwr-studio.pwr-native .pwr-brand-icon{border-radius:7px;height:38px;flex-basis:38px;font-size:20px}
-#pwr-studio.pwr-native .pwr-subhead{font-size:11px}
-#pwr-studio.pwr-native .pwr-main{display:grid;grid-template-columns:66px minmax(275px,39%) minmax(0,1fr);grid-template-areas:'nav stage side';min-height:0}
-#pwr-studio .pwr-native-nav{display:none}
-#pwr-studio.pwr-native .pwr-native-nav{grid-area:nav;display:flex;flex-direction:column;align-items:stretch;gap:7px;min-width:0;padding:13px 7px;background:#0b0a11e8;border-right:1px solid #5f2880;overflow-y:auto;scrollbar-width:thin}
-#pwr-studio .pwr-native-nav button{display:flex;flex-direction:column;gap:4px;align-items:center;justify-content:center;min-width:0;min-height:55px;padding:5px 2px!important;font-size:10px!important;font-weight:600;line-height:1.1;border:1px solid #694079!important;border-radius:7px!important;background:linear-gradient(#25172e,#100d19)!important;color:#e2c8ef!important}
-#pwr-studio .pwr-native-nav button.pwr-active{background:linear-gradient(#633078,#311842)!important;border-color:#da9ffc!important;color:white!important;box-shadow:0 0 0 1px #b968e85e!important}
-#pwr-studio .pwr-native-nav .pwr-nav-icon{font-size:22px;line-height:1.1;color:#c57cfa}
-#pwr-studio.pwr-native .pwr-stage{grid-area:stage;background:#1d1126d8;border-right:1px solid #703a8a;padding:12px;gap:8px}
-#pwr-studio.pwr-native .pwr-stage-title{flex-wrap:wrap}
-#pwr-studio.pwr-native .pwr-scene{border:1px solid #5d3773;border-radius:9px;box-shadow:inset 0 0 12px #1a0d2aa1;min-height:160px}
-#pwr-studio.pwr-native .pwr-backdrop-card{border-radius:8px;background:#1c1425c9;padding:9px}
-#pwr-studio.pwr-native .pwr-side{grid-area:side;background:#100b18ee;padding:12px;gap:9px}
-#pwr-studio.pwr-native .pwr-side>.pwr-tabs,#pwr-studio.pwr-native .pwr-slot-section{display:none!important}
-#pwr-studio .pwr-native-rows{display:none}
-#pwr-studio.pwr-native .pwr-native-rows{display:block;flex:none;min-height:0;max-height:min(43vh,390px);overflow-y:auto;scrollbar-color:#8c49aa #211427;scrollbar-width:thin;border:1px solid #653785;border-radius:8px;background:#120d1b}
-#pwr-studio .pwr-native-listhead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 11px;background:#261630;border-bottom:1px solid #663380;font-size:11px;font-weight:800;letter-spacing:.055em;color:#dfbaf8;position:sticky;top:0;z-index:2}
-#pwr-studio .pwr-native-row{display:grid;grid-template-columns:35px minmax(0,1fr) 30px 30px 43px 35px;gap:4px;align-items:center;min-height:53px;padding:5px 6px;border-bottom:1px solid #3e2849;min-width:0;background:#180f21}
-#pwr-studio .pwr-native-row:nth-of-type(2n){background:#21132b}
-#pwr-studio .pwr-native-row.pwr-active{background:#3a204c;box-shadow:inset 3px 0 #d088fc}
-#pwr-studio .pwr-native-row:last-child{border-bottom:0}
-#pwr-studio .pwr-native-row .pwr-native-slot-symbol{color:#d095f7;font-size:19px;font-weight:800;text-align:center}
-#pwr-studio .pwr-native-row button{min-width:0;min-height:34px;padding:5px!important;border-radius:5px!important;border:1px solid #623a7a!important;box-shadow:none!important;background:#26172f!important;font-weight:650;font-size:12px}
-#pwr-studio .pwr-native-row button:hover{background:#592c71!important;border-color:#b271d0!important}
-#pwr-studio .pwr-native-row button.pwr-native-selected{padding:5px 8px!important;display:flex;flex-direction:column;justify-content:center;align-items:stretch;text-align:left;gap:2px;min-height:42px;background:#24172e!important}
-#pwr-studio .pwr-native-row.pwr-active button.pwr-native-selected{background:#61357a!important;border-color:#c583e8!important}
-#pwr-studio .pwr-native-row .pwr-native-name{font-size:10px;line-height:1.15;color:#c6a8da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#pwr-studio .pwr-native-row .pwr-native-current{font-size:12px;line-height:1.25;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#pwr-studio .pwr-native-row button.pwr-native-swatch{background:#24172f!important;display:grid;place-items:center}
-#pwr-studio .pwr-native-row .pwr-native-color-chip{display:block;width:22px;height:22px;max-width:100%;border-radius:50%;border:1px solid #f2ceff;background:repeating-conic-gradient(#d6c2e0 0% 25%,#694276 0% 50%) 50%/9px 9px}
-#pwr-studio .pwr-native-row .pwr-native-color-chip[data-color='true']{background:var(--pwr-active-color)!important}
-#pwr-studio.pwr-native .pwr-section{border-radius:8px;padding:10px;background:#21162d;border-color:#55326d}
-#pwr-studio.pwr-native .pwr-assets-section{order:0}
-#pwr-studio.pwr-native .pwr-assets-section>summary{background:#2a1a37;min-height:35px;padding:5px;border-radius:6px}
-#pwr-studio.pwr-native .pwr-asset-grid.pwr-with-previews{grid-template-columns:repeat(2,minmax(0,1fr))}
-#pwr-studio.pwr-native .pwr-asset-card{min-width:0}
-#pwr-studio.pwr-native .pwr-asset.pwr-has-preview{min-height:160px}
-#pwr-studio.pwr-native .pwr-asset-preview{max-height:145px}
-#pwr-studio.pwr-native .pwr-colors-section{top:0}
-#pwr-studio .pwr-layout-btn{border-color:#c180e0!important;font-size:11px!important;white-space:nowrap}
-#pwr-studio.pwr-native .pwr-layout-btn{background:#3d2555!important}
-@media(max-width:1100px){#pwr-studio.pwr-native .pwr-main{grid-template-columns:54px minmax(205px,36%) minmax(0,1fr)}#pwr-studio .pwr-native-nav button{min-height:48px;font-size:9px!important}#pwr-studio .pwr-native-row{grid-template-columns:28px minmax(0,1fr) 26px 26px 35px 30px;gap:3px;padding:5px 3px}#pwr-studio .pwr-native-row .pwr-native-slot-symbol{font-size:16px}}
-@media(max-width:750px){
-  #pwr-studio.pwr-native .pwr-main{grid-template-columns:minmax(0,1fr);grid-template-rows:60px minmax(210px,35%) minmax(310px,1fr);grid-template-areas:'nav' 'stage' 'side'}
-  #pwr-studio.pwr-native .pwr-native-nav{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:5px;gap:5px}
-  #pwr-studio.pwr-native .pwr-native-nav button{flex:1;min-width:61px;min-height:45px;gap:2px}
-  #pwr-studio .pwr-native-nav .pwr-nav-icon{font-size:18px}
-  #pwr-studio.pwr-native .pwr-stage{overflow-y:auto;padding:6px;gap:5px}
-  #pwr-studio.pwr-native .pwr-scene{flex:0 0 170px;min-height:170px}
-  #pwr-studio.pwr-native .pwr-stage-title{display:flex!important}
-  #pwr-studio.pwr-native .pwr-side{overflow-y:auto;padding:7px}
-  #pwr-studio.pwr-native .pwr-native-rows{max-height:220px}
-}
-@media(max-width:460px){#pwr-studio .pwr-native-row{grid-template-columns:22px minmax(0,1fr) 24px 24px 28px 27px;gap:2px;min-height:46px}#pwr-studio .pwr-native-row button{font-size:10px!important;padding:3px!important}#pwr-studio .pwr-native-row .pwr-native-current{font-size:11px}}
-
-@media (prefers-reduced-motion:reduce){#pwr-studio button,#pwr-studio input,#pwr-launcher{transition:none!important;transform:none!important}}
 `;
   const app = {
     ready: false, mod: null, enabled: true, allowPartnerEdits: true,
@@ -1073,8 +776,18 @@
   }
   function addHooks() {
     if (!globalThis.bcModSdk || typeof globalThis.bcModSdk.registerMod !== 'function') return false;
+    if(app.mod || app.registrationAttempted) {app.initFatal=true;return false;}
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.26'});
+      const listed=typeof globalThis.bcModSdk.getMods==='function'?globalThis.bcModSdk.getMods():null;
+      if(Array.isArray(listed)&&listed.some(m=>(m?.name||m?.info?.name||m?.meta?.name)==='PawPrivateWardrobe')) {
+        console.warn('[Paw Private Wardrobe] Existing ModSDK registration found. Disable the older script and refresh.');
+        app.initFatal=true;return false;
+      }
+    } catch(_) { /* ModSDK builds differ: skip optional inspection. */ }
+    // Set before registerMod: even a partial startup must never register twice.
+    app.registrationAttempted=true;
+    try {
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.0'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -1153,7 +866,7 @@
         return next(args);
       });
       return true;
-    } catch(err) {console.error('[Paw Private Wardrobe] Hook registration failed',err);return false;}
+    } catch(err) {app.initFatal=true;app.diagnostics.lastError=String(err);console.error('[Paw Private Wardrobe] Hook registration failed (no retry)',err);return false;}
   }
   // Only a focused item/slot is evidence of an active native interaction.
   // DialogCharacter by itself is NOT evidence: BC can retain it while viewing the room.
@@ -1403,6 +1116,7 @@
   }
   function closeStudio() {
     if(app.studioResizeObserver){app.studioResizeObserver.disconnect();app.studioResizeObserver=null;}
+    app.nativeThumbToken=(app.nativeThumbToken||0)+1;
     if(app.studio){app.studio.dragTempLook=null;app.studio.dragTempClones=null;}
     app.studio=null;app.studioClones=new WeakMap();app.studioFit=null;app.studioDrawTicket++;
     if(app.studioPanel)app.studioPanel.style.display='none';
@@ -1468,6 +1182,7 @@
     const current=(!stored?.removed && Array.isArray(stored?.look))?stored.look:app.remote[key(pid,subject)]?.look;
     const source=(!stored?.removed&&Array.isArray(stored?.look))?stored:app.remote[key(pid,subject)];
     app.studio={partner:pid,subject,look:cloneJson(current||snapshot(c)),fit:normalizeFit(source?.fit),braChest:normalizeBraChest(c,source?.braChest),dirty:false,remoteChanged:false,overwriteConfirmed:false,undo:[],redo:[],comparePublic:false,dragEnabled:false,dragGroup:null,dragTempLook:null,dragTempClones:null};
+    app.nativeMode='slots';app.nativeTab='Clothing';app.nativePage=0;app.nativeSearch='';app.nativeSearchAsset='';app.nativeGroup='';
     app.studioClones=new WeakMap();app.editorSubject=subject;app.editorTab='Clothing';app.editorSearch='';app.editorPage=0;
     const groups=assetGroups(c).filter(g=>groupClass(g)==='Clothing');
     app.editorGroup=groups[0]?.Name||assetGroups(c)[0]?.Name||'';
@@ -1546,7 +1261,7 @@
     const look=validateLook(c,cloneJson(entry.look));
     if(!look)return;
     recordStudioChange(st);
-    st.look=look;st.fit=normalizeFit(entry.fit);st.braChest=normalizeBraChest(c,entry.braChest);
+    app.nativeThumbCache=new Map();st.look=look;st.fit=normalizeFit(entry.fit);st.braChest=normalizeBraChest(c,entry.braChest);
     st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
     app.studioClones=new WeakMap();renderStudio();
     setStatus('Loaded preset and body fit into your draft. Undo is available. Press Save & share when ready.');
@@ -1762,811 +1477,368 @@
       app.studioFit={scene:[Number(scene.clientWidth)||0,Number(scene.clientHeight)||0],source:[source.width,source.height],visible:[b.x,b.y,b.width,b.height],canvas:[cssW,cssH],destination:[Math.round(dx/dpr),Math.round(dy/dpr),Math.round(dw/dpr),visibleHeight],fixedHeight:visibleHeight,measured:b.measured};
     }catch(err){app.diagnostics.render='Studio canvas failed: '+String(err);}
   }
+  // v0.3.0: Separate BC-inspired editor. One main character clone and one catalog page
+  // are active at a time; no redraws are performed when the browser is resized.
   function renderStudio() {
-    const root=app.studioPanel,st=app.studio;if(!root||!st||root.style.display==='none')return;
-    if(app.studioResizeObserver){app.studioResizeObserver.disconnect();app.studioResizeObserver=null;}
-    const ticket=++app.studioDrawTicket;
-    root.replaceChildren();
-    root.classList.toggle('pwr-native',app.studioLayout==='bc');
+    const root=app.studioPanel, st=app.studio;
+    if(!root || !st || root.style.display==='none')return;
     const c=findChar(st.subject),partner=findChar(st.partner);
-    if(!c||!partner){closeStudio();return;}
-    const shell=node('div',undefined,'pwr-shell');root.appendChild(shell);
+    if(!c || !partner){closeStudio();return;}
+    app.nativeMode=app.nativeMode||'slots';
+    app.nativeTab=app.nativeTab||'Clothing';
+    app.nativePage=Math.max(0,app.nativePage||0);
+    app.nativeThumbCache=app.nativeThumbCache||new Map();
+    const thumbToken=app.nativeThumbToken=(app.nativeThumbToken||0)+1;
+    app.studioDrawTicket++;
+    root.replaceChildren();
+    const shell=node('div',undefined,'pwr-shell'); root.appendChild(shell);
     const toolbar=node('div',undefined,'pwr-toolbar');shell.appendChild(toolbar);
-    const h=node('div',undefined,'pwr-head');
-    const brand=node('div',undefined,'pwr-brand');
-    append(brand,node('div','🐾','pwr-brand-icon'));
-    const brandText=node('div');
-    append(brandText,node('div','PAW PRIVATE WARDROBE','pwr-eyebrow'));
-    append(brandText,node('h2',`${c.Name||st.subject}'s atelier`));
-    append(brandText,node('div','Your private styling space · public appearance unchanged','pwr-subhead'));
-    append(brand,brandText);append(h,brand);
-    const topButtons=node('div',undefined,'pwr-row pwr-top-actions');
-    append(topButtons,node('span','● EDITING DRAFT','pwr-state'));
-    const undo=button('↶ Undo',undoStudio,'pwr-secondary pwr-history-btn');undo.title='Undo the last wardrobe change (Ctrl+Z)';undo.disabled=!st.undo?.length;
-    const redo=button('↷ Redo',redoStudio,'pwr-secondary pwr-history-btn');redo.title='Redo a reverted wardrobe change (Ctrl+Y)';redo.disabled=!st.redo?.length;
-    append(topButtons,undo,redo);
-    const layout=button(app.studioLayout==='bc'?'▤ Atelier layout':'◫ BC layout',()=>{app.studioLayout=app.studioLayout==='bc'?'atelier':'bc';saveSettings();renderStudio();},'pwr-secondary pwr-layout-btn');
-    layout.title='Switch between BC-inspired wardrobe and the original Atelier editor';
-    append(topButtons,layout);
-    append(topButtons,button('Discard & close',closeStudio,'pwr-secondary'),button(st.remoteChanged&&st.overwriteConfirmed?'Overwrite & share':'Save & share',saveStudio,'pwr-save'));
-    append(h,topButtons);append(toolbar,h);
+    append(toolbar,node('strong','Select your appearance · '+(c.Name||st.subject),'pwr-heading'));
+    const actionBar=node('div',undefined,'pwr-actions');toolbar.appendChild(actionBar);
+    append(actionBar,node('span','PRIVATE ONLY','pwr-save-state'));
+    append(actionBar,button('↶',undoStudio,'pwr-history-btn'),button('↷',redoStudio,'pwr-history-btn'));
+    actionBar.children[1].disabled=!st.undo?.length;
+    actionBar.children[2].disabled=!st.redo?.length;
+    append(actionBar,button('✕ Discard',closeStudio,'pwr-cancel'),button(st.remoteChanged&&st.overwriteConfirmed?'Confirm overwrite ✓':'✓ Save & share',saveStudio,'pwr-accept'));
     if(st.remoteChanged) {
-      const alert=node('div',undefined,'pwr-pale');
-      append(alert,node('span','Your partner sent a newer look while you were editing. It already appears in the room. Your draft is unchanged.'));
-      const actions=node('div',undefined,'pwr-row');
-      append(actions,button('Load newer look',()=>{
+      const notice=node('div',undefined,'pwr-alert');
+      append(notice,node('span','Your partner sent a newer outfit while you were editing. Your unsaved draft remains separate. '));
+      append(notice,button('Load partner look',()=>{
         const saved=app.profiles[key(st.partner,st.subject)];
-        recordStudioChange(st);
-        st.look=cloneJson(saved&&!saved.removed&&saved.look?saved.look:snapshot(c));
-        st.comparePublic=false;
-        st.fit=normalizeFit(saved?.fit);
-        st.braChest=normalizeBraChest(c,saved?.braChest);
-        st.remoteChanged=false;st.overwriteConfirmed=false;st.dirty=false;
-        app.studioClones=new WeakMap();renderStudio();
+        if(saved&&!saved.removed&&Array.isArray(saved.look)){
+          st.look=cloneJson(saved.look);st.fit=normalizeFit(saved.fit);st.braChest=normalizeBraChest(c,saved.braChest);
+          st.remoteChanged=false;st.overwriteConfirmed=false;st.dirty=false;st.undo=[];st.redo=[];
+          app.studioClones=new WeakMap();renderStudio();
+        }
       }));
-      append(alert,actions);append(toolbar,alert);
+      shell.appendChild(notice);
     }
     const main=node('div',undefined,'pwr-main');shell.appendChild(main);
-    const nativeNav=node('nav',undefined,'pwr-native-nav');
-    nativeNav.setAttribute('aria-label','Appearance categories');
-    const navTabs=[['Clothing','▤'],['Body','♙'],['Accessories','✦'],['Gear','⚙'],['All','☰']];
-    for(const [tab,symbol] of navTabs){
-      const b=button('',()=>{app.editorTab=tab;app.editorPage=0;app.editorSearch='';app.editorGroup='';st.dragEnabled=false;st.dragTempLook=null;renderStudio();},'pwr-native-nav-button'+(app.editorTab===tab?' pwr-active':''));
-      b.title=tab;
-      b.setAttribute('aria-label',tab);
-      append(b,node('span',symbol,'pwr-nav-icon'),node('span',tab));
-      append(nativeNav,b);
-    }
-    append(main,nativeNav);
-    const stage=node('div',undefined,'pwr-stage');main.appendChild(stage);
-    const stageTitle=node('div',undefined,'pwr-stage-title');
-    append(stageTitle,node('span','Character preview','pwr-label-upper'));
-    const previewState=node('div',undefined,'pwr-row');previewState.style.margin='0';previewState.style.gap='7px';
-    append(previewState,node('span',st.comparePublic?'PUBLIC · COMPARISON':'PRIVATE · LOCAL ONLY','pwr-mini-tag'+(st.comparePublic?' pwr-public-tag':'')));
-    const compare=button(st.comparePublic?'Show private draft':'Compare public look',()=>{st.comparePublic=!st.comparePublic;renderStudio();},'pwr-secondary pwr-compare-btn');
-    compare.title='Switch the studio preview without changing your private outfit';
-    append(previewState,compare);
-    // The same drag toggle is also available in Fine-tune below.
-    const chosenForMove=st.look.find(r=>r.group===app.editorGroup && r.asset!==HIDE_ITEM);
-    if(adjustableRecord(c,chosenForMove)){
-      const on=st.dragEnabled&&st.dragGroup===app.editorGroup;
-      const toggle=button(on?'✥ Drag: ON':'✥ Drag item',()=>{
-        st.dragEnabled=!on;st.dragGroup=app.editorGroup;st.comparePublic=false;
-        st.dragTempLook=null;st.dragTempClones=null;renderStudio();
-      },'pwr-secondary pwr-drag-toggle'+(on?' pwr-active':''));
-      toggle.title='Drag anywhere on the character preview to move the selected item';
-      append(previewState,toggle);
-    }
-    append(stageTitle,previewState);
-    append(stage,stageTitle);
-    const scene=node('div',undefined,'pwr-scene');applyBackground(scene);stage.appendChild(scene);
-    const sceneInner=node('div',undefined,'pwr-scene-inner');append(scene,sceneInner);
-    const characterHolder=node('div',undefined,'pwr-character-holder');append(sceneInner,characterHolder);
-    const canvas=node('canvas');canvas.className='pwr-character-canvas';canvas.width=500;canvas.height=1000;
-    append(characterHolder,canvas);
-    // A pointer surface covering only the preview (never the wardrobe controls).
-    // Move optional items by editing the same private X/Y values as Fine-tune.
-    const activeDragRecord=st.look.find(r=>r.group===app.editorGroup && r.asset!==HIDE_ITEM);
-    const canDragSelected=adjustableRecord(c,activeDragRecord);
-    if(canDragSelected && st.dragEnabled && st.dragGroup===app.editorGroup && !st.comparePublic){
-      const surface=node('div',undefined,'pwr-item-drag-overlay');
-      surface.setAttribute('role','application');
-      surface.setAttribute('aria-label','Drag to position '+displayName(activeDragRecord.asset));
-      const hint=node('span','Drag to move '+displayName(activeDragRecord.asset),'pwr-drag-instruction');
-      const delta=node('span','Release to apply · Esc to cancel','pwr-drag-delta');
-      append(surface,hint,delta);append(characterHolder,surface);
-      let drag=null;
-      const previewHeight=()=>Number(app.studioFit?.destination?.[3])||app.previewSize||380;
-      const sourceHeight=()=>Number(app.studioFit?.visible?.[3])||0;
-      const pointerMove=e=>{
-        if(!drag || e.pointerId!==drag.id)return;
-        const scalar=drag.scalar;
-        const diffX=e.clientX-drag.clientX,diffY=e.clientY-drag.clientY;
-        const newX=Math.round(clamp(drag.startX+diffX*scalar,...tuneLimits.x));
-        const newY=Math.round(clamp(drag.startY+diffY*scalar,...tuneLimits.y));
-        if(newX===drag.x&&newY===drag.y)return;
-        drag.x=newX;drag.y=newY;drag.moved=true;
-        delta.textContent=`Offset X ${newX}px · Y ${newY}px`;
-        // Deliberately defer full BC composition until pointerup: continuous
-        // pointermove must not rebuild character clones while dragging.
-        e.preventDefault();
-      };
-      surface.addEventListener('pointerdown',e=>{
-        if(drag || (e.pointerType==='mouse' && e.button!==0))return;
-        const scale=sourceHeight()/previewHeight();
-        if(!Number.isFinite(scale)||scale<=0){delta.textContent='Preview still loading — try again';return;}
-        const tune=normalizeTune(activeDragRecord.tune)||DEFAULT_TUNE;
-        drag={id:e.pointerId,clientX:e.clientX,clientY:e.clientY,scalar:scale,
-          startX:tune.x,startY:tune.y,x:tune.x,y:tune.y,moved:false,
-          group:activeDragRecord.group,asset:activeDragRecord.asset};
-        surface.classList.add('pwr-moving');
-        try{surface.setPointerCapture(e.pointerId);}catch(_){}
-        e.preventDefault();
+    const left=node('div',undefined,'pwr-left');main.appendChild(left);
+    const previewBar=node('div',undefined,'pwr-preview-bar');
+    append(previewBar,node('strong','CHARACTER PREVIEW'),button(st.comparePublic?'View private':'Compare public',()=>{st.comparePublic=!st.comparePublic;drawStudioCanvas();},''));
+    left.appendChild(previewBar);
+    const scene=node('div',undefined,'pwr-scene');applyBackground(scene);left.appendChild(scene);
+    const sceneInner=node('div',undefined,'pwr-scene-inner');scene.appendChild(sceneInner);
+    const canvas=node('canvas');canvas.className='pwr-character-canvas';canvas.width=500;canvas.height=1000;sceneInner.appendChild(canvas);
+    if(st.dragEnabled && app.nativeMode==='adjust') {
+      const catcher=node('div',undefined,'pwr-drag-catcher');scene.appendChild(catcher);
+      let start=null;
+      catcher.addEventListener('pointerdown',event=>{
+        if(event.button!==0 && event.pointerType==='mouse')return;
+        const item=st.look.find(x=>x.group===app.nativeGroup);
+        if(!item||!adjustableRecord(c,item))return;
+        start={pointer:event.pointerId,x:event.clientX,y:event.clientY,group:app.nativeGroup};
+        try{catcher.setPointerCapture(event.pointerId);}catch(_){ }
       });
-      surface.addEventListener('pointermove',pointerMove);
-      const finish=e=>{
-        if(!drag || e.pointerId!==drag.id)return;
-        const last=drag;drag=null;
-        surface.classList.remove('pwr-moving');
-        st.dragTempLook=null;st.dragTempClones=null;
-        if(e.type==='pointerup' && last.moved && (last.x!==last.startX||last.y!==last.startY)){
-          // One undo entry for the whole gesture; never publish automatically.
-          modifyStudio(list=>{
-            const item=list.find(r=>r.group===last.group&&r.asset===last.asset);
-            if(item)item.tune={...DEFAULT_TUNE,...(normalizeTune(item.tune)||{}),x:last.x,y:last.y};
-          });
-        }else drawStudioCanvas();
-        e.preventDefault();
-      };
-      surface.addEventListener('pointerup',finish);
-      surface.addEventListener('pointercancel',finish);
-      surface.addEventListener('keydown',e=>{if(e.key==='Escape'&&drag){
-        const id=drag.id;finish({pointerId:id,type:'pointercancel',preventDefault(){}});
-      }});
-    }
-    const backdropCard=node('div',undefined,'pwr-backdrop-card');append(stage,backdropCard);
-    const backdropHeader=node('div',undefined,'pwr-backdrop-header');
-    append(backdropHeader,node('div','Studio appearance','pwr-label-upper'));
-    const toggleCustom=button('Custom image ▾',()=>{
-      app.showBackgroundTools=!app.showBackgroundTools;
-      urlRow.hidden=!app.showBackgroundTools;
-      toggleCustom.textContent=app.showBackgroundTools?'Hide custom image ▴':'Custom image ▾';
-    },'pwr-secondary pwr-custom-toggle');
-    append(backdropHeader,toggleCustom);append(backdropCard,backdropHeader);
-    const controls=node('div',undefined,'pwr-backdrop-row');
-    append(controls,node('span','Backdrop'));
-    makeSelect(controls,[['violet','Violet wardrobe'],['rose','Rose suite'],['midnight','Midnight'],['garden','Garden'],['neutral','Neutral studio'],['custom','Image URL'],['local','Local image (this session)']],app.background,v=>{
-      app.background=v;saveSettings();applyBackground(scene);
-      if(v==='custom'||v==='local'){app.showBackgroundTools=true;urlRow.hidden=false;toggleCustom.textContent='Hide custom image ▴';}
-    });
-    append(controls,node('span','Size'));
-    const sizeControl=node('select');sizeControl.className='pwr-size-select';sizeControl.title='Fixed character height in pixels — window resizing does not change the size';
-    for(const size of [320,380,460,540,640]){const option=node('option',`${size}px`);option.value=String(size);append(sizeControl,option);}
-    sizeControl.value=String(app.previewSize);
-    sizeControl.addEventListener('change',()=>{const size=Number(sizeControl.value);if(![320,380,460,540,640].includes(size))return;app.previewSize=size;saveSettings();drawStudioCanvas();});
-    append(controls,sizeControl);append(backdropCard,controls);
-    const fitRow=node('div',undefined,'pwr-backdrop-row pwr-fit-row');
-    append(fitRow,node('span','Private body fit'));
-    const fitSelect=makeSelect(fitRow,[
-      ['auto','Automatic · female Small for bras'],
-      ['flat','Flat feminine · any gender'],
-      ['original','Original body / gender']
-    ],normalizeFit(st.fit),value=>{
-      changeStudioFit(value,st.braChest);
-    });
-    fitSelect.title='Only the private illustration changes. Public body, gender, clothing and equipment remain untouched.';
-    append(backdropCard,fitRow);
-    append(backdropCard,node('p','Automatic recognizes common non-female gender values and flat chest assets. Every bra in Automatic or Flat feminine mode uses the smallest available female chest by default (normally Small). Original is an opt-out. This affects detached art only, not public body data.','pwr-help'));
-    // Bra8 (Lace and Satin) and similar bras may supply a shaped sprite even
-    // with a flat BodyUpper. Compare the ACTUAL local game drawings rather than
-    // claiming that merely setting Gender=F reshapes the sprite artwork.
-    const fitAppearance=appearanceFor(c,st.look,st.fit,st.braChest);
-    const selectedBra=fitAppearance?.find(it=>hasBraInAppearance([it]));
-    if(selectedBra && shouldRenderFeminine(c,st.fit,fitAppearance)) {
-      // Bra previews are OPTIONAL and generated only when opened. Previously
-      // these hidden canvases were created on every atelier render and could
-      // escape the preview area under BC/other-addon global canvas styles.
-      const compare=node('details',undefined,'pwr-bra-compare');
-      compare.open=!!app.sections.braCompare;
-      append(compare,node('summary','Bra artwork fit · '+displayName(selectedBra.Asset?.Description||selectedBra.Asset?.Name||'Bra')));
-      const inner=node('div',undefined,'pwr-bra-compare-body');
-      append(inner,node('p','Compare body variants for this bra. Private preview only. Open this panel to render comparison pictures.','pwr-help'));
-      const variants=['auto',...groupAssets(groupByName(c,'BodyUpper')).map(a=>a.Name)];
-      const choiceGrid=node('div',undefined,'pwr-bra-choices');append(inner,choiceGrid);
-      append(compare,inner);
-      const mountChoices=()=>{
-        if(!compare.open||choiceGrid.childElementCount||app.studio!==st)return;
-      for(const choice of variants) {
-        const active=normalizeBraChest(c,st.braChest)===choice;
-        const tile=button('',()=>{
-          changeStudioFit(st.fit,choice);
-        },'pwr-bra-choice'+(active?' pwr-active':''));
-        const canvas=node('canvas');canvas.width=180;canvas.height=150;
-        append(tile,canvas,node('span',choice==='auto'?'Automatic · smallest female':choice));
-        append(choiceGrid,tile);
-        const cache=new WeakMap();let attempts=0,complete=false;
-        const drawChoice=()=>{
-          if(app.studio!==st || !canvas.isConnected||complete)return;
-          try {
-            const clone=getRenderClone(c,st.look,cache,drawChoice,st.fit,choice);
-            const src=clone?.Canvas;
-            if(src && thumbnailCanvasReady(src)) {
-              const full=visibleStudioBounds(src);
-              // Chest-focused, stable framing. A wide crop leaves shoulders and
-              // neckline visible for assessing bra cup fit.
-              const bx=full.x+full.width*.10,by=full.y+full.height*.20;
-              const bw=full.width*.80,bh=full.height*.41;
-              const ctx=canvas.getContext('2d');
-              if(ctx) {
-                const scale=Math.min(canvas.width/bw,canvas.height/bh);
-                const w=bw*scale,h=bh*scale;
-                ctx.clearRect(0,0,canvas.width,canvas.height);
-                ctx.drawImage(src,bx,by,bw,bh,(canvas.width-w)/2,(canvas.height-h)/2,w,h);
-                complete=true;
-              }
-            }
-          }catch(_){/* a BC sprite may be unavailable */}
-          if(!complete && ++attempts<10)setTimeout(drawChoice,120+attempts*145);
-        };
-        setTimeout(drawChoice,100);
-      }
-      };
-      compare.addEventListener('toggle',()=>{
-        app.sections.braCompare=compare.open;
-        if(compare.open)mountChoices();
-      });
-      append(backdropCard,compare);
-      if(compare.open)mountChoices();
-    }
-    const urlRow=node('div',undefined,'pwr-background');
-    const url=node('input');url.type='text';url.placeholder='Custom HTTPS image URL';url.value=app.customBackground||'';
-    url.title='An external background image is downloaded directly by your browser.';
-    append(urlRow,url,button('Use URL',()=>{
-      const next=url.value.trim();
-      if(!/^https:\/\/[a-z0-9.-]+(?:\:\d+)?(?:\/[^\s]*)?$/i.test(next)||next.length>1024){setStatus('Please use a valid HTTPS image URL.');return;}
-      app.customBackground=next;app.background='custom';saveSettings();renderStudio();
-    },'pwr-secondary'));
-    const imagePick=node('input');imagePick.type='file';imagePick.accept='image/*';imagePick.title='Use a local image for this editing session';imagePick.style.maxWidth='160px';
-    imagePick.addEventListener('change',()=>{
-      const f=imagePick.files?.[0];if(!f||!f.type.startsWith('image/')||f.size>8*1024*1024){setStatus('Choose an image smaller than 8 MB.');return;}
-      if(app.sessionBackground&&app.sessionBackground.startsWith('blob:'))URL.revokeObjectURL(app.sessionBackground);
-      app.sessionBackground=URL.createObjectURL(f);app.background='local';saveSettings();renderStudio();
-    });
-    append(urlRow,imagePick);append(backdropCard,urlRow);
-    if(app.background==='custom'||app.background==='local')app.showBackgroundTools=true;
-    urlRow.hidden=!app.showBackgroundTools;
-    toggleCustom.textContent=app.showBackgroundTools?'Hide custom image ▴':'Custom image ▾';
-    append(backdropCard,node('div','Fixed character size · preview scrolls instead of shrinking','pwr-help'));
-    const side=node('div',undefined,'pwr-side');main.appendChild(side);
-    const tabs=node('div',undefined,'pwr-tabs');
-    for(const tab of ['Clothing','Body','Accessories','Gear','All'])append(tabs,button(tab,()=>{app.editorTab=tab;app.editorPage=0;app.editorSearch='';app.editorGroup='';st.dragEnabled=false;st.dragTempLook=null;renderStudio();},'pwr-tab'+(app.editorTab===tab?' pwr-active':'')));
-    append(side,tabs);
-    let groups=assetGroups(c).filter(g=>app.editorTab==='All'||groupClass(g)===app.editorTab);
-    if(!groups.length)groups=assetGroups(c);
-    if(!groups.some(g=>g.Name===app.editorGroup))app.editorGroup=groups[0]?.Name||'';
-    const createFold=(heading,n,sectionClass,which)=>{
-      const section=node('details',undefined,'pwr-section pwr-details '+(sectionClass||''));
-      section.open=app.sections[which]!==false;
-      section.addEventListener('toggle',()=>{app.sections[which]=section.open;});
-      const summary=node('summary');append(summary,node('span',n,'pwr-step'),node('h3',heading));append(section,summary);
-      const body=node('div',undefined,'pwr-section-body');append(section,body);append(side,section);return {section,body};
-    };
-    // Native-inspired slot list: familiar BC rows with inline style arrows and
-    // color / configuration shortcuts. They only modify detached private drafts.
-    const nativeRows=node('section',undefined,'pwr-native-rows');
-    nativeRows.setAttribute('aria-label','Appearance slots');
-    const listHeader=node('div',undefined,'pwr-native-listhead');
-    append(listHeader,node('span','APPEARANCE · '+app.editorTab.toUpperCase()),node('span',groups.length+' slots'));
-    append(nativeRows,listHeader);
-    const selectNativeGroup=(g,section)=>{
-      app.editorGroup=g.Name;app.editorPage=0;app.editorSearch='';
-      st.dragEnabled=false;st.dragTempLook=null;
-      if(section)app.sections[section]=true;
-      renderStudio();
-      if(section){
-        // Scroll the target section into the visible portion of the pane.
-        const name=section==='colors'?'.pwr-colors-section':section==='use'?'.pwr-use-section':'.pwr-assets-section';
-        const target=app.studioPanel?.querySelector(name);
-        if(target && section!=='colors')target.scrollIntoView({block:'nearest',behavior:'auto'});
-      }
-    };
-    const nativeGlyph=g=>g.Category==='Item'?'⚙':/hair|head|face|eye|ear/i.test(g.Name)?'♙':/shoe|boot|sock|foot/i.test(g.Name)?'♧':/bra|dress|cloth|top|suit|skirt|pant/i.test(g.Name)?'▤':'✦';
-    for(const g of groups){
-      const record=st.look.find(r=>r.group===g.Name && r.asset!==HIDE_ITEM);
-      const equipped=record?assetByName(c,g,record.asset):null;
-      const itemName=equipped?displayName(equipped.Description||equipped.Name):record?displayName(record.asset):'None';
-      const selected=g.Name===app.editorGroup;
-      const row=node('div',undefined,'pwr-native-row'+(selected?' pwr-active':''));
-      append(row,node('span',nativeGlyph(g),'pwr-native-slot-symbol'));
-      const sel=button('',()=>selectNativeGroup(g,'styles'),'pwr-native-selected');
-      sel.title='Browse '+displayName(g.Description||g.Name);
-      append(sel,node('span',displayName(g.Description||g.Name),'pwr-native-name'),node('span',itemName,'pwr-native-current'));
-      append(row,sel);
-      const variants=groupAssets(g).filter(a=>a?.Name);
-      const removable=!!(g.AllowNone||g.Category==='Item');
-      const choices=removable?[null,...variants]:variants;
-      const currentIdx=choices.findIndex(a=>(a?.Name||null)===(record?.asset||null));
-      const cycle=delta=>{
-        if(!choices.length)return;
-        const newIndex=((currentIdx<0?0:currentIdx)+delta+choices.length)%choices.length;
-        const chosen=choices[newIndex];
-        // A style change is one Undo step; preserve color and supported visual
-        // overrides only when the same asset is chosen again.
-        modifyStudio(list=>{
-          const old=list.find(x=>x.group===g.Name && x.asset!==HIDE_ITEM);
-          for(let i=list.length-1;i>=0;i--)if(list[i].group===g.Name)list.splice(i,1);
-          if(chosen)list.push(withTune({group:g.Name,asset:chosen.Name,color:old?.color||'Default',...(old?.asset===chosen.Name&&old?.use?{use:old.use}:{})},old?.asset===chosen.Name?normalizeTune(old?.tune):null));
-          else if(g.Category==='Item')list.push({group:g.Name,asset:HIDE_ITEM,color:'Default'});
-        });
-      };
-      const back=button('‹',()=>cycle(-1),'pwr-native-arrow');back.title='Previous style';back.setAttribute('aria-label','Previous '+g.Name+' style');back.disabled=!choices.length;
-      const forward=button('›',()=>cycle(1),'pwr-native-arrow');forward.title='Next style';forward.setAttribute('aria-label','Next '+g.Name+' style');forward.disabled=!choices.length;
-      append(row,back,forward);
-      const colorBtn=button('',()=>{app.activeColorLayer=0;selectNativeGroup(g,'colors');},'pwr-native-swatch');
-      colorBtn.title='Edit colors for '+g.Name;
-      colorBtn.setAttribute('aria-label','Edit '+g.Name+' colors');
-      const chip=node('span',undefined,'pwr-native-color-chip');
-      const col=Array.isArray(record?.color)?record.color.find(x=>/^#[0-9a-f]{3,8}$/i.test(x)):record?.color;
-      if(typeof col==='string'&&/^#[0-9a-f]{3,8}$/i.test(col)){chip.style.setProperty('--pwr-active-color',col);chip.setAttribute('data-color','true');}
-      append(colorBtn,chip);append(row,colorBtn);
-      const use=button('⚙',()=>selectNativeGroup(g,'use'),'pwr-native-config');use.title='Use / Configure '+g.Name;use.setAttribute('aria-label','Configure '+g.Name);
-      append(row,use);
-      append(nativeRows,row);
-    }
-    side.appendChild(nativeRows);
-    const slotFold=createFold('Choose a private visual slot','01','pwr-slot-section', 'slots');
-    const slotSection=slotFold.body;
-    append(slotSection,node('div','Full BC catalog · no purchase or gender filtering · Gear is visual-only and does not equip real items.','pwr-help'));
-    const groupGrid=node('div',undefined,'pwr-groups');
-    for(const g of groups){
-      const current=st.look.find(x=>x.group===g.Name);
-      append(groupGrid,button(`${displayName(g.Description||g.Name)}${current?' ●':''}`,()=>{app.editorGroup=g.Name;app.editorPage=0;app.editorSearch='';st.dragEnabled=false;st.dragTempLook=null;renderStudio();},'pwr-group'+(app.editorGroup===g.Name?' pwr-active':'')));
-    }
-    append(slotSection,groupGrid);
-    const group=groupByName(c,app.editorGroup);
-    if(!group)return;
-    const assetSection=createFold('Choose '+displayName(group.Description||group.Name),'02','pwr-assets-section','styles').body;
-    const chooseHeader=node('div',undefined,'pwr-head');
-    append(chooseHeader,node('span','Catalog previews · click once to style privately','pwr-preview-hint'));
-    append(chooseHeader,button(app.thumbnailFocus==='item'?'Zoom: ITEM':'Zoom: FULL',()=>{app.thumbnailFocus=app.thumbnailFocus==='item'?'full':'item';saveSettings();renderStudio();},'pwr-secondary'));
-    append(chooseHeader,button(app.showThumbnails?'Previews ON':'Previews OFF',()=>{app.showThumbnails=!app.showThumbnails;saveSettings();renderStudio();},'pwr-secondary'));
-    append(assetSection,chooseHeader);
-    const search=node('input');search.type='search';search.placeholder='Search styles in this slot…';search.value=app.editorSearch;
-    search.addEventListener('input',()=>{app.editorSearch=search.value;app.editorPage=0;renderAssetGrid();});
-    append(assetSection,search);
-    const favoriteTools=node('div',undefined,'pwr-favorite-tools');
-    const favoriteFilter=button(app.favoritesOnly?'★ Favorites only':'☆ Show favorites',()=>{
-      app.favoritesOnly=!app.favoritesOnly;app.editorPage=0;renderStudio();
-    },'pwr-secondary'+(app.favoritesOnly?' pwr-active':''));
-    favoriteFilter.title='Filter the current asset slot to your starred items';
-    append(favoriteTools,favoriteFilter,node('span','Star an item card to keep it handy. Favorites stay on this account.','pwr-help'));
-    append(assetSection,favoriteTools);
-    const grid=node('div',undefined,'pwr-asset-grid');append(assetSection,grid);
-    const pager=node('div',undefined,'pwr-row pwr-pager');append(assetSection,pager);
-    const current=st.look.find(r=>r.group===group.Name && r.asset !== HIDE_ITEM);
-    let thumbIndex=0;
-    // Unlike the older "remove the whole group" baseline, the reference
-    // retains mandatory Body/Hair groups. Existing selected style is the
-    // comparison when available; otherwise use the original public slot.
-    const mode=thumbnailMode(group);
-    const publicSlot=snapshot(c).find(x=>x.group===group.Name);
-    const referenceLook=cloneJson(st.look);
-    if(!current && publicSlot && mode!=='item')referenceLook.push(publicSlot);
-    const referenceCache=new WeakMap();
-    // R134/R133: appearance canvases can become ready in stages, and some
-    // browsers populate their character sprites after CharacterLoadCanvas
-    // returns. Never mark a blank crop as a successful thumbnail.
-    function thumbHasPixels(canvas) {
-      try {
-        const ctx=canvas.getContext('2d',{willReadFrequently:true});
-        if(!ctx || !ctx.getImageData)return true;
-        const w=canvas.width,h=canvas.height;
-        const data=ctx.getImageData(0,0,w,h).data;
-        let pixels=0;
-        for(let i=3;i<data.length;i+=32)if(data[i]>12&&++pixels>12)return true;
-        return false;
-      }catch(_){return true;} // Protected canvas: drawing itself is best effort.
-    }
-    // Item sprites may finish loading after a cloned canvas is cached.
-    // Rebuilding the temporary clone (not Player.Appearance) refreshes each
-    // thumbnail without requiring the user to click an item on every page.
-    function invalidateThumbnailClone(cache,character) {
-      try {cache.delete(character);referenceCache.delete(character);}catch(_){}
-    }
-    // Preview work can be very expensive: each candidate is a complete BC
-    // character canvas, not just an item sprite. Keep at most two tasks active
-    // and defer cards until they are near the viewport. Cancellation is scoped
-    // to a single gallery page so old pages never continue rendering.
-    let galleryToken=0,previewObserver=null,previewQueue=[],previewActive=0;
-    const MAX_PREVIEW_JOBS=2;
-    function drainPreviewQueue() {
-      while(previewActive<MAX_PREVIEW_JOBS && previewQueue.length){
-        const job=previewQueue.shift();
-        if(!job.valid())continue;
-        previewActive++;
-        job.start(()=>{
-          if(job.token!==galleryToken)return;
-          previewActive=Math.max(0,previewActive-1);
-          drainPreviewQueue();
-        });
-      }
-    }
-    function addTilePreview(tile,asset) {
-      if(!app.showThumbnails)return;
-      if(!asset){append(tile,node('div','✕ Remove','pwr-preview-placeholder'));return;}
-      const look=cloneJson(st.look),i=look.findIndex(item=>item.group===group.Name);
-      if(i>=0)look.splice(i,1);
-      look.push({group:group.Name,asset:asset.Name,color:current?.color||'Default',...(current?.asset===asset.Name&&current?.use?{use:current.use}:{})});
-      const visual=node('div',undefined,'pwr-asset-visual pwr-focus-'+mode);
-      const mini=node('canvas');mini.width=250;
-      mini.height=mode==='body'?340:mode==='hair'?250:(mode==='upper-body'||mode==='lower-body')?240:198;
-      mini.className='pwr-asset-preview';mini.title='Preview '+asset.Name;
-      append(visual,mini);append(tile,visual);
-      const hint=node('div','Loading preview…','pwr-preview-pending');append(visual,hint);
-      const cache=new WeakMap();
-      const token=galleryToken,studioSession=app.studioDrawTicket;
-      let tries=0,done=false,started=false,release=()=>{};
-      const canContinue=()=>app.studio===st && app.studioDrawTicket===studioSession &&
-        token===galleryToken && mini.isConnected && app.showThumbnails;
-      const finish=()=>{if(done)return;done=true;release();};
-      const schedule=(delay)=>{if(canContinue())setTimeout(draw,delay);else finish();};
-      const paint=(src,box)=>{
-        const ctx=mini.getContext?.('2d',{willReadFrequently:true});
-        if(!ctx||!box||box.width<=0||box.height<=0)return false;
-        const scale=Math.min(mini.width/box.width,mini.height/box.height);
-        const w=box.width*scale,h=box.height*scale;
-        ctx.clearRect(0,0,mini.width,mini.height);
-        ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-        ctx.drawImage(src,box.x,box.y,box.width,box.height,(mini.width-w)/2,(mini.height-h)/2,w,h);
-        return thumbHasPixels(mini);
-      };
-      const draw=()=>{
-        if(done || !canContinue()){finish();return;}
-        let visible=false;
-        try {
-          const replica=getRenderClone(c,look,cache,draw,st.fit,st.braChest);
-          const source=replica?.Canvas;
-          if(source && thumbnailCanvasReady(source)) {
-            const same=current?.asset===asset.Name;
-            const referenceNeeded=app.thumbnailFocus==='item'&&mode==='item'&&!same;
-            const baseline=referenceNeeded?getRenderClone(c,referenceLook,referenceCache,draw,st.fit,st.braChest):null;
-            const baseReady=!!baseline?.Canvas&&thumbnailCanvasReady(baseline.Canvas);
-            const focused=app.thumbnailFocus==='full'?visibleStudioBounds(source)
-              :thumbnailFocusBounds(source,baseReady?baseline.Canvas:null,group,mini.width/mini.height);
-            visible=paint(source,focused);
-            if(!visible)visible=paint(source,visibleStudioBounds(source));
-            if(!visible)visible=paint(source,{x:0,y:0,width:source.width,height:source.height});
-          }
-        }catch(err){if(tries===0)console.debug('[Paw Private Wardrobe] Thumbnail:',group.Name,asset.Name,String(err));}
-        if(visible){
-          hint.remove();finish();
-        }else if(++tries<=10){
-          // Rebuild a delayed BC sprite only when the image remains blank.
-          // Never rebuild already successful thumbnails repeatedly.
-          if([3,6,9].includes(tries))invalidateThumbnailClone(cache,c);
-          schedule(140+Math.min(tries*115,670));
-        }else{
-          hint.textContent='Preview unavailable';hint.classList.add('pwr-preview-unavailable');
-          hint.title='BC has not provided a drawable preview for this asset.';
-          finish();
-        }
-      };
-      const activate=()=>{
-        if(started||!canContinue())return;
-        started=true;
-        previewQueue.push({token,valid:canContinue,start:(end)=>{release=end;draw();}});
-        drainPreviewQueue();
-      };
-      // An observer avoids drawing thumbnails for cards that are offscreen.
-      // If unavailable, the same concurrency-limited scheduler is used.
-      if(previewObserver)previewObserver.observe(tile);
-      else setTimeout(activate,40);
-      tile.__pawActivatePreview=activate;
-    }
-    function renderAssetGrid() {
-      galleryToken++;
-      if(previewObserver){previewObserver.disconnect();previewObserver=null;}
-      previewQueue=[];previewActive=0;
-      if(app.showThumbnails && typeof IntersectionObserver==='function'){
-        previewObserver=new IntersectionObserver(entries=>{
-          for(const entry of entries)if(entry.isIntersecting){
-            previewObserver?.unobserve(entry.target);
-            entry.target.__pawActivatePreview?.();
-          }
-        },{root:side,rootMargin:'240px 0px',threshold:0});
-      }
-      const all=groupAssets(group).filter(a=>a?.Name);
-      const filtered=all.filter(a=>`${a.Name} ${a.Description||''}`.toLowerCase().includes(app.editorSearch.toLowerCase()));
-      const visible=app.favoritesOnly?filtered.filter(a=>isFavorite(group.Name,a.Name)):filtered;
-      // Show the equipped style first (when included by search/favorites),
-      // followed immediately by Remove, then the other catalog styles.
-      // If there are no matching styles, keep Remove available as the only tile.
-      const ordered=visible.slice();
-      const equippedIndex=ordered.findIndex(a=>a.Name===current?.asset);
-      if(equippedIndex>0)ordered.unshift(ordered.splice(equippedIndex,1)[0]);
-      const canRemove=!!(group.AllowNone || group.Category==='Item');
-      const assets=canRemove ? (ordered.length?[ordered[0],null,...ordered.slice(1)]:[null]) : ordered;
-      const perPage=app.showThumbnails?6:12,total=Math.max(1,Math.ceil(assets.length/perPage));
-      app.editorPage=Math.min(app.editorPage,total-1);
-      grid.replaceChildren();grid.classList.toggle('pwr-with-previews',app.showThumbnails);
-      for(const asset of assets.slice(app.editorPage*perPage,(app.editorPage+1)*perPage)) {
-        const isChosen=asset?current?.asset===asset.Name:!current;
-        const tile=button('',()=>modifyStudio(list=>{
-          const i=list.findIndex(r=>r.group===group.Name);if(i>=0)list.splice(i,1);
-          if(asset)list.push(withTune({group:group.Name,asset:asset.Name,color:current?.color||'Default',...(current?.asset===asset.Name&&current?.use?{use:current.use}:{})},current?.asset===asset.Name?normalizeTune(current?.tune):null));
-          else if(group.Category==='Item')list.push({group:group.Name,asset:HIDE_ITEM,color:'Default'});
-        }),'pwr-asset'+(isChosen?' pwr-active':'')+(app.showThumbnails?' pwr-has-preview':''));
-        tile.title=asset?.Name||'Remove this item';
-        if(!app.showThumbnails||!asset)append(tile,node('span',asset?'◇':'✕','pwr-asset-icon'));
-        addTilePreview(tile,asset);
-        const friendly=asset?.Description?displayName(asset.Description):'';
-        const readable=asset ? (friendly || displayName(asset.Name)) : '(None / Remove)';
-        const rawName=asset ? String(asset.Name) : 'Remove';
-        const copy=node('div',undefined,'pwr-asset-copy');
-        append(copy,node('span',readable,'pwr-asset-title'));
-        if(asset) append(copy,node('span',rawName,'pwr-asset-sub'));
-        else append(copy,node('span','Clear this slot','pwr-asset-sub'));
-        append(tile,copy);
-        const card=node('div',undefined,'pwr-asset-card');append(card,tile);
-        if(asset) {
-          const favorite=isFavorite(group.Name,asset.Name);
-          const star=button(favorite?'★':'☆',()=>{toggleFavorite(group.Name,asset.Name);renderAssetGrid();},'pwr-star'+(favorite?' pwr-star-active':''));
-          star.title=favorite?'Remove from favorites':'Add to favorites';
-          star.setAttribute('aria-label',star.title+' '+asset.Name);
-          append(card,star);
-        }
-        append(grid,card);
-      }
-      if(visible.length===0)append(grid,node('div',app.favoritesOnly?'No favorites in this slot. Turn off Favorites only or star an item.':'No matching assets. Try another search.','pwr-empty-results'));
-      pager.replaceChildren();
-      append(pager,button('◀',()=>{app.editorPage=Math.max(0,app.editorPage-1);renderAssetGrid();},'pwr-secondary'));
-      pager.lastElementChild.disabled=app.editorPage===0;
-      append(pager,node('span',`Page ${app.editorPage+1} / ${total} · ${assets.length} choices`));
-      append(pager,button('▶',()=>{app.editorPage=Math.min(total-1,app.editorPage+1);renderAssetGrid();},'pwr-secondary'));
-      pager.lastElementChild.disabled=app.editorPage>=total-1;
-    }
-    renderAssetGrid();
-    // AEE-inspired whole-item controls. These apply only to detached private
-    // clothing/accessory canvases, not body geometry or BC's native Items.
-    const tuningSection=createFold('Fine-tune selected item','05','pwr-tuning-section','tuning').body;
-    const tuneRecord=st.look.find(r=>r.group===group.Name && r.asset!==HIDE_ITEM);
-    const tuneReady=adjustableRecord(c,tuneRecord);
-    const tuneHead=node('div',undefined,'pwr-tune-head');
-    append(tuneHead,node('strong',tuneRecord?displayName(tuneRecord.asset):'No item equipped'));
-    if(tuneRecord)append(tuneHead,node('span',tuneReady?'Private visual layer':'Body / required slot','pwr-mini-tag'));
-    append(tuningSection,tuneHead);
-    if(!tuneReady){
-      append(tuningSection,node('p','Choose optional clothing or an accessory. Required body parts and native gear are excluded from pixel transforms to avoid corrupting the character drawing.','pwr-help'));
-    } else {
-      append(tuningSection,node('p','Move, resize or fade just this item. Draw order is adjustable among modified items. This is an experimental private visual effect, not BC native layer editing.','pwr-help'));
-      const dragOn=st.dragEnabled&&st.dragGroup===group.Name;
-      append(tuningSection,button(dragOn?'✥ Stop dragging':'✥ Drag item on character preview',()=>{
-        st.dragEnabled=!dragOn;st.dragGroup=group.Name;st.comparePublic=false;
-        st.dragTempLook=null;st.dragTempClones=null;renderStudio();
-      },'pwr-secondary pwr-drag-toggle'+(dragOn?' pwr-active':'')));
-      append(tuningSection,node('p','Turn on Drag, then drag across the character preview to adjust X/Y. Release to apply. You can Undo the entire move.','pwr-help'));
-      const settings=normalizeTune(tuneRecord.tune)||{...DEFAULT_TUNE};
-      const grid=node('div',undefined,'pwr-tune-grid');
-      const fields=[['opacity','Opacity','%'],['x','Horizontal offset',' px'],['y','Vertical offset',' px'],['angle','Rotation','°'],['scaleX','Width scale','%'],['scaleY','Height scale','%'],['priority','Overlay order','']];
-      const setField=(field,value)=>{
-        modifyStudioTuneFast(list=>{const item=list.find(r=>r.group===group.Name);if(!item)return;
-          item.tune={...DEFAULT_TUNE,...(normalizeTune(item.tune)||{}),[field]:value};
-        });
-      };
-      for(const [field,title,units] of fields){
-        const cell=node('div',undefined,'pwr-tune-ctrl');
-        const lbl=node('div',undefined,'pwr-tune-label');
-        append(lbl,node('span',title),node('span',settings[field]+units,'pwr-tune-val'));
-        const slider=node('input');slider.type='range';slider.min=String(tuneLimits[field][0]);slider.max=String(tuneLimits[field][1]);
-        slider.step=String(field==='x'||field==='y'?2:field==='angle'?5:field==='priority'?1:5);
-        slider.value=String(settings[field]);slider.setAttribute('aria-label',title);
-        slider.addEventListener('input',()=>lbl.lastChild.textContent=slider.value+units);
-        slider.addEventListener('change',()=>setField(field,Number(slider.value)));
-        append(cell,lbl,slider);append(grid,cell);
-      }
-      append(tuningSection,grid);
-      const mirror=node('div',undefined,'pwr-tune-checks');
-      for(const [field,title] of [['mirrorX','Mirror horizontally'],['mirrorY','Flip vertically']]){
-        checkbox(mirror,title,settings[field],value=>setField(field,value));
-      }
-      append(tuningSection,mirror);
-      const actions=node('div',undefined,'pwr-tune-actions');
-      append(actions,button('Reset item adjustments',()=>{
+      catcher.addEventListener('pointerup',event=>{
+        if(!start || start.pointer!==event.pointerId)return;
+        const dx=event.clientX-start.x,dy=event.clientY-start.y;
+        const fit=app.studioFit;
+        const ratio=fit?.visible?.[3] && fit?.fixedHeight ?fit.visible[3]/fit.fixedHeight:2;
+        const target=start.group;start=null;
+        if(Math.abs(dx)+Math.abs(dy)<2)return;
         modifyStudioTuneFast(list=>{
-          const item=list.find(r=>r.group===group.Name);if(item)delete item.tune;
+          const item=list.find(r=>r.group===target);if(!item)return;
+          const previous={...DEFAULT_TUNE,...(item.tune||{})};
+          const updated=normalizeTune({...previous,x:previous.x+Math.round(dx*ratio),y:previous.y+Math.round(dy*ratio)});
+          if(updated)item.tune=updated;else delete item.tune;
         });
-        // Refresh slider labels/control values once; the reset is infrequent.
-        renderStudio();
-      },'pwr-secondary'));
-      append(tuningSection,actions);
-    }
-    // BC's safe, visual-only extended item variant picker. It is NOT the
-    // native Use screen; native actions are never called from this editor.
-    const useSection=createFold('Use / Configure item','06','pwr-use-section','use').body;
-    const useRecord=st.look.find(r=>r.group===group.Name && r.asset!==HIDE_ITEM);
-    const useAsset=useRecord?assetByName(c,group,useRecord.asset):null;
-    const variants=itemVisualOptions(useAsset);
-    if(!useRecord) {
-      append(useSection,node('p','Choose an item to see its visual configuration options.','pwr-help'));
-    } else if(!variants.length) {
-      append(useSection,node('p','This asset has no supported visual style choices exposed in the loaded BC catalog. Its native Use menu may contain actions or custom screens that are not safe to run inside a private preview.','pwr-help'));
-    } else {
-      append(useSection,node('div',displayName(useRecord.asset)+' · '+variants.length+' visual options','pwr-use-status'));
-      append(useSection,node('p','These are appearance variants only. Selecting a mode does not activate devices, send actions, change restraints, or modify the public BC item.','pwr-help'));
-      const options=node('div',undefined,'pwr-use-choices');
-      for(const variant of variants) {
-        const selected=useRecord.use?.type===variant.type;
-        const choice=button(variant.name,()=>modifyStudio(list=>{
-          const item=list.find(r=>r.group===group.Name&&r.asset===useRecord.asset);if(!item)return;
-          item.use={type:variant.type,...(variant.typeRecord?{typeRecord:variant.typeRecord}:{})};
-        }),'pwr-use-choice'+(selected?' pwr-active':''));
-        choice.title='Private appearance mode: '+variant.type;
-        append(options,choice);
-      }
-      append(useSection,options);
-      append(useSection,button('Reset visual mode',()=>modifyStudio(list=>{
-        const item=list.find(r=>r.group===group.Name&&r.asset===useRecord.asset);
-        if(item)delete item.use;
-      }),'pwr-secondary'));
-    }
-    // Saved private outfits: pair+subject-specific and local to this account.
-    const savedSection=createFold('Saved private outfits','03','pwr-saved-section','outfits').body;
-    const presets=savedOutfitsFor(st);
-    append(savedSection,node('p','Saved locally, never in the public BC wardrobe. Loading makes a draft; Save & share sends it.','pwr-help'));
-    const savePresetRow=node('div',undefined,'pwr-preset-row');
-    const presetName=node('input');presetName.type='text';presetName.maxLength=60;presetName.placeholder='Outfit name (e.g. Moonlit Kitty)';
-    const savePresetButton=button('＋ Save current draft',()=>saveOutfitPreset(presetName.value));
-    append(savePresetRow,presetName,savePresetButton);append(savedSection,savePresetRow);
-    append(savedSection,node('div',presets.length+' / '+MAX_SAVED_OUTFITS+' saved outfits for '+(c.Name||st.subject),'pwr-help'));
-    for(const preset of presets.slice(0,MAX_SAVED_OUTFITS)){
-      if(!preset||!Array.isArray(preset.look)||typeof preset.id!=='string')continue;
-      const entry=node('div',undefined,'pwr-preset-entry');
-      const nameInput=node('input');nameInput.type='text';nameInput.maxLength=60;nameInput.value=String(preset.name||'Untitled').slice(0,60);
-      nameInput.title='Edit name, then click Rename';
-      const actions=node('div',undefined,'pwr-preset-actions');
-      append(actions,button('Load',()=>loadOutfitPreset(preset.id)),button('Rename',()=>renameOutfitPreset(preset.id,nameInput.value),'pwr-secondary'));
-      append(entry,nameInput,actions,button('Delete',()=>deleteOutfitPreset(preset.id),'pwr-danger'));append(savedSection,entry);
-    }
-    const colorFold=createFold('Color atelier · Hex picker · stays on top','04','pwr-colors-section','colors');
-    side.insertBefore(colorFold.section,tabs.nextSibling); // always accessible while scrolling
-    const colors=colorFold.body;
-    const colorClose=node('div',undefined,'pwr-picker-close-row');
-    append(colorClose,node('span','Color picker','pwr-help'),button('✕ Close picker',()=>{colorFold.section.open=false;app.sections.colors=false;},'pwr-secondary'));
-    append(colors,colorClose);
-    const currentItem=st.look.find(r=>r.group===group.Name && r.asset !== HIDE_ITEM);
-    const selectedAsset=currentItem?assetByName(c,group,currentItem.asset):null;
-    const definitions=selectedAsset?colorLayerDefinitions(selectedAsset,group,currentItem?.color):[];
-    const colorableCount=definitions.length;
-    if(!currentItem||!colorableCount){append(colors,node('p',!currentItem?'Choose an item in this slot before changing its colors.':'BC does not mark this asset as colorable.','pwr-help'));}
-    else {
-      const layers=colorLayersForRecord(currentItem,colorableCount);
-      const layerIndex=Math.max(0,Math.min(layers.length-1,app.activeColorLayer));
-      app.activeColorLayer=layerIndex;
-      const layerHeader=node('div',undefined,'pwr-layer-head');
-      append(layerHeader,node('b','Item color layers ('+colorableCount+')'),node('span','Select a layer to edit it','pwr-help'));
-      append(colors,layerHeader);
-      const layerList=node('div',undefined,'pwr-layer-list');
-      for(const entry of definitions){
-        const i=entry.index, value=layers[i],isDefault=value==='Default';
-        const selection=button('',()=>{
-          app.activeColorLayer=i;
-          // Save this layer choice in view state only; colors remain draft-only.
-          app.sections.colors=true;renderStudio();
-        },'pwr-layer-tile'+(layerIndex===i?' pwr-active':''));
-        selection.title=entry.name||'Color layer '+(i+1);
-        selection.setAttribute('aria-label','Edit '+entry.title+' color '+value);
-        const chip=node('span',undefined,'pwr-layer-swatch');
-        if(/^#[0-9a-f]{3,8}$/i.test(value))chip.style.background=value;
-        const summary=node('span',undefined,'pwr-layer-info');
-        append(summary,node('span',entry.title,'pwr-layer-title'),node('span',value==='Default'?'BC default color':value,'pwr-layer-detail'));
-        append(selection,chip,summary);append(layerList,selection);
-      }
-      append(colors,layerList);
-      append(colors,node('div','Editing: '+definitions[layerIndex].title,'pwr-layer-editing'));
-      const hexBox=node('div',undefined,'pwr-hex-picker');append(colors,hexBox);
-      const head=node('div',undefined,'pwr-hex-head');append(hexBox,head);
-      const swatch=node('span',undefined,'pwr-hex-chip');
-      const hex=node('input');hex.type='text';hex.placeholder='#RRGGBB';hex.inputMode='text';hex.maxLength=7;
-      hex.style.maxWidth='145px';hex.style.width='145px';
-      const selectedLayer=layers[layerIndex];
-      const cleanHex=s=>{
-        const t=String(s||'').trim();
-        if(/^#[0-9a-f]{6}$/i.test(t))return t.toUpperCase();
-        if(/^#[0-9a-f]{3}$/i.test(t))return '#'+[...t.slice(1)].map(x=>x+x).join('').toUpperCase();
-        return null;
-      };
-      hex.value=cleanHex(selectedLayer)||'#D6A6EC';
-      swatch.style.backgroundColor=hex.value;
-      append(head,node('b','HEX  #RRGGBB'),swatch,hex);
-      // HSV control produces CSS hex values, never browser-native RGB dialogs.
-      const hsvFromHex=value=>{
-        const h=cleanHex(value)||'#D6A6EC';const r=parseInt(h.slice(1,3),16)/255,g=parseInt(h.slice(3,5),16)/255,b=parseInt(h.slice(5,7),16)/255;
-        const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
-        let hue=0;if(d){switch(max){case r:hue=((g-b)/d)%6;break;case g:hue=(b-r)/d+2;break;default:hue=(r-g)/d+4;}hue=(hue*60+360)%360;}
-        return {h:hue,s:max===0?0:d/max,v:max};
-      };
-      const hexFromHSV=(h,s,v)=>{
-        const f=n=>{const k=(n+h/60)%6;return Math.round(255*v*(1-s*Math.max(0,Math.min(k,4-k,1))));};
-        return '#'+[f(5),f(3),f(1)].map(x=>x.toString(16).padStart(2,'0')).join('').toUpperCase();
-      };
-      let hsv=hsvFromHex(hex.value);
-      // CSS HSV pad: avoid a real canvas because game/addon canvas rules can
-      // displace it to the top of the screen and cover other studio controls.
-      const plane=node('div');plane.className='pwr-sv-canvas';
-      plane.setAttribute('role','slider');plane.setAttribute('tabindex','0');
-      plane.setAttribute('aria-label','Saturation and brightness');
-      plane.setAttribute('aria-valuemin','0');plane.setAttribute('aria-valuemax','100');
-      const marker=node('span',undefined,'pwr-sv-marker');plane.appendChild(marker);
-      const hue=node('input');hue.type='range';hue.className='pwr-hue';hue.min='0';hue.max='360';hue.value=String(Math.round(hsv.h));hue.setAttribute('aria-label','Hue');
-      const drawPlane=()=>{
-        const hueColor=hexFromHSV(hsv.h,1,1);
-        // Black vertical overlay, white horizontal overlay, hue underneath.
-        plane.style.backgroundImage='linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),linear-gradient(to right,'+hueColor+','+hueColor+')';
-        marker.style.left=(hsv.s*100)+'%';
-        marker.style.top=((1-hsv.v)*100)+'%';
-        plane.setAttribute('aria-valuenow',String(Math.round(hsv.v*100)));
-        plane.setAttribute('aria-valuetext','Saturation '+Math.round(hsv.s*100)+'%, brightness '+Math.round(hsv.v*100)+'%');
-      };
-      const syncHex=()=>{hex.value=hexFromHSV(hsv.h,hsv.s,hsv.v);swatch.style.backgroundColor=hex.value;drawPlane();};
-      const pickAt=e=>{const rect=plane.getBoundingClientRect();if(!rect.width||!rect.height)return;
-        hsv.s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));hsv.v=1-Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));syncHex();};
-      let dragging=false;
-      plane.addEventListener('pointerdown',e=>{dragging=true;plane.setPointerCapture?.(e.pointerId);pickAt(e);e.preventDefault();});
-      plane.addEventListener('pointermove',e=>{if(dragging)pickAt(e);});
-      plane.addEventListener('pointerup',e=>{if(dragging)pickAt(e);dragging=false;});
-      plane.addEventListener('pointercancel',()=>{dragging=false;});
-      // Keyboard users can adjust the selected color without a pointer.
-      plane.addEventListener('keydown',e=>{
-        const step=e.shiftKey?0.10:0.02;
-        if(e.key==='ArrowLeft')hsv.s=Math.max(0,hsv.s-step);
-        else if(e.key==='ArrowRight')hsv.s=Math.min(1,hsv.s+step);
-        else if(e.key==='ArrowUp')hsv.v=Math.min(1,hsv.v+step);
-        else if(e.key==='ArrowDown')hsv.v=Math.max(0,hsv.v-step);
-        else return;
-        e.preventDefault();syncHex();
       });
-      hue.addEventListener('input',()=>{hsv.h=Number(hue.value);syncHex();});
-      hex.addEventListener('input',()=>{const val=cleanHex(hex.value);if(val){hsv=hsvFromHex(val);hue.value=String(Math.round(hsv.h));swatch.style.backgroundColor=val;drawPlane();}});
-      append(hexBox,plane,hue);
-      append(hexBox,node('div','PRESET COLORS · click to select','pwr-swatch-heading'));
-      const palettes=node('div',undefined,'pwr-swatch-grid');
-      const palette=['#FFFFFF','#000000','#E4B7FF','#D86ECA','#AB68D2','#6F3E91','#FF9CC4','#E06666','#F6AB50','#F2DF75','#7DC77C','#4BA8A8','#7FC3EE','#4E73CE','#956655','#B9B9B9','#FADCDD','#C99282','#805AAF','#4D375F'];
-      for(const col of palette){const choice=button('',()=>{hsv=hsvFromHex(col);hue.value=String(Math.round(hsv.h));syncHex();});choice.style.setProperty('--pwr-swatch',col);choice.title=col;choice.setAttribute('aria-label','Choose '+col);append(palettes,choice);}
-      append(hexBox,palettes);
-      const apply=()=>{
-        const valid=cleanHex(hex.value);
-        if(!valid){hex.style.borderColor='#f37e8f';setStatus('Enter a valid hex color such as #D6A6EC.');return;}
-        modifyStudio(list=>{
-          const item=list.find(r=>r.group===group.Name && r.asset===currentItem.asset);
-          if(!item)return;
-          recolorSingleLayer(item,colorableCount,layerIndex,valid);
-        });
-      };
-      const reset=()=>modifyStudio(list=>{
-        const item=list.find(r=>r.group===group.Name && r.asset===currentItem.asset);
-        if(item)recolorSingleLayer(item,colorableCount,layerIndex,'Default');
+      catcher.addEventListener('pointercancel',()=>{start=null;});
+    }
+    const previewTools=node('div',undefined,'pwr-preview-tools');left.appendChild(previewTools);
+    append(previewTools,node('span','Backdrop'));
+    makeSelect(previewTools,[['violet','Violet'],['rose','Rose'],['midnight','Midnight'],['garden','Garden'],['neutral','Neutral'],['custom','Custom URL'],['local','Local image']],app.background,value=>{
+      app.background=value;saveSettings();applyBackground(scene);renderStudio();
+    });
+    append(previewTools,node('span','Size'));
+    makeSelect(previewTools,[320,380,460,540,640].map(n=>[n,n+'px']),app.previewSize,value=>{
+      app.previewSize=Number(value);saveSettings();drawStudioCanvas();
+    });
+    const right=node('div',undefined,'pwr-right');main.appendChild(right);
+    const filter=node('div',undefined,'pwr-filter');right.appendChild(filter);
+    const categories=[['Clothing','👗'],['Body','♟'],['Accessories','✦'],['Gear','⛓'],['All','☷']];
+    for(const [value,symbol] of categories){
+      const b=button(symbol+' '+value,()=>{
+        app.nativeTab=value;app.nativeMode='slots';app.nativePage=0;app.nativeSearch='';renderStudio();
+      },value===app.nativeTab?'pwr-selected':''); b.title=value;filter.appendChild(b);
+    }
+    append(filter,button('▣ Outfits',()=>{app.nativeMode='presets';renderStudio();},app.nativeMode==='presets'?'pwr-selected':''));
+    const groupList=assetGroups(c).filter(g=>app.nativeTab==='All'||groupClass(g)===app.nativeTab);
+    // Show the common BC clothing groups in wardrobe order.
+    const order=['Cloth','ClothLower','ClothAccessory','Bra','Panties','Socks','Shoes','Hat','Gloves','Necklace','Bracelet','HairAccessory1','HairAccessory2'];
+    groupList.sort((a,b)=>{
+      const ai=order.indexOf(a.Name),bi=order.indexOf(b.Name);
+      return (ai<0?999:ai)-(bi<0?999:bi) || String(a.Description||a.Name).localeCompare(String(b.Description||b.Name));
+    });
+    if(!groupList.some(g=>g.Name===app.nativeGroup))app.nativeGroup=groupList[0]?.Name||'';
+    const currentGroup=groupByName(c,app.nativeGroup);
+    const head=node('div',undefined,'pwr-right-head');right.appendChild(head);
+    const heading=node('strong','');head.appendChild(heading);
+    const headActions=node('div',undefined,'pwr-actions');head.appendChild(headActions);
+    const area=node('div',undefined,'pwr-list-scroll');right.appendChild(area);
+    const pages=node('div',undefined,'pwr-pages');right.appendChild(pages);
+    const showMode=(name)=>{app.nativeMode=name;app.nativePage=0;renderStudio();};
+    const recFor=g=>st.look.find(x=>x.group===g.Name);
+    const sortedChoices=g=>{
+      const record=recFor(g),all=groupAssets(g).slice();
+      all.sort((a,b)=>String(a.Description||a.Name).localeCompare(String(b.Description||b.Name)));
+      const equipped=record?all.find(a=>a.Name===record.asset):null;
+      const choices=equipped?[equipped,...(g.AllowNone?[null]:[]),...all.filter(a=>a!==equipped)]:[...(g.AllowNone?[null]:[]),...all];
+      return choices;
+    };
+    const selectAsset=(group,asset)=>{
+      modifyStudio(list=>{
+        const previous=list.find(r=>r.group===group.Name);
+        const index=list.findIndex(r=>r.group===group.Name);
+        if(index>=0)list.splice(index,1);
+        if(asset)list.push({group:group.Name,asset:asset.Name,color:previous?.color||'Default'});
       });
-      const actionRow=node('div',undefined,'pwr-color-buttons');
-      append(actionRow,button('Apply to '+definitions[layerIndex].title,apply),
-        button('Reset this layer',reset,'pwr-secondary'));
-      if(colorableCount>1){
-        append(actionRow,button('Apply hex to all layers',()=>{
-          const valid=cleanHex(hex.value);
-          if(!valid){setStatus('Enter a valid hex color, e.g. #D6A6EC.');return;}
-          modifyStudio(list=>{
-            const item=list.find(r=>r.group===group.Name && r.asset===currentItem.asset);
-            if(item)item.color=Array(colorableCount).fill(valid);
-          });
-        },'pwr-secondary'),button('Reset all layers',()=>modifyStudio(list=>{
-          const item=list.find(r=>r.group===group.Name && r.asset===currentItem.asset);
-          if(item)item.color=Array(colorableCount).fill('Default');
-        }),'pwr-secondary'));
+    };
+    const openGroup=(g)=>{app.nativeGroup=g.Name;showMode('catalog');};
+    const openColor=(g)=>{app.nativeGroup=g.Name;app.activeColorLayer=0;showMode('colors');};
+    function addPager(total,perPage){
+      pages.replaceChildren();
+      append(pages,button('◀',()=>{app.nativePage=Math.max(0,app.nativePage-1);renderStudio();}));
+      pages.lastElementChild.disabled=app.nativePage<=0;
+      append(pages,node('span',(app.nativePage+1)+' / '+Math.max(1,Math.ceil(total/perPage))));
+      append(pages,button('▶',()=>{app.nativePage=Math.min(Math.ceil(total/perPage)-1,app.nativePage+1);renderStudio();}));
+      pages.lastElementChild.disabled=app.nativePage>=Math.ceil(total/perPage)-1;
+    }
+    if(app.nativeMode==='slots'){
+      heading.textContent='Appearance · '+app.nativeTab;
+      const search=node('input');search.type='search';search.className='pwr-search';search.placeholder='Search appearance slots';
+      search.value=app.nativeSearch||'';
+      headActions.appendChild(search);
+      search.addEventListener('input',()=>{
+        app.nativeSearch=search.value;
+        const caret=search.selectionStart;
+        clearTimeout(app.nativeSearchTimer);
+        app.nativeSearchTimer=setTimeout(()=>{
+          if(app.studio!==st||app.nativeMode!=='slots')return;
+          app.nativePage=0;renderStudio();
+          const fresh=root.querySelector('.pwr-right-head .pwr-search');
+          if(fresh){fresh.focus();try{fresh.setSelectionRange(caret,caret);}catch(_){} }
+        },150);
+      });
+      const term=(app.nativeSearch||'').toLowerCase();
+      const groups=groupList.filter(g=>(g.Name+' '+(g.Description||'')).toLowerCase().includes(term));
+      const per=10,maxPage=Math.max(0,Math.ceil(groups.length/per)-1);
+      app.nativePage=Math.min(app.nativePage,maxPage);
+      for(const g of groups.slice(app.nativePage*per,app.nativePage*per+per)){
+        const row=node('div',undefined,'pwr-slot');area.appendChild(row);
+        const active=recFor(g),text=displayName(g.Description||g.Name)+': '+(active?displayName(assetByName(c,g,active.asset)?.Description||active.asset):'None');
+        const mainBtn=button(text,()=>openGroup(g),'pwr-slot-main'+(g.Name===app.nativeGroup?' pwr-active':''));
+        const cycle=(delta)=>{
+          // The gallery is equipped-first; arrows instead use a stable catalog
+          // order so each arrow press reaches a genuinely different item.
+          const all=groupAssets(g).slice().sort((a,b)=>String(a.Description||a.Name).localeCompare(String(b.Description||b.Name)));
+          const list=[...(g.AllowNone?[null]:[]),...all];
+          if(!list.length)return;
+          const i=list.findIndex(a=>(a?.Name||null)===(active?.asset||null));
+          selectAsset(g,list[((i<0?0:i)+delta+list.length)%list.length]);
+        };
+        const prev=button('‹',()=>cycle(-1),'pwr-slot-arrow');
+        const next=button('›',()=>cycle(1),'pwr-slot-arrow');
+        append(row,mainBtn);
+        const tools=node('div',undefined,'pwr-actions');
+        append(tools,button('⚙',()=>{app.nativeGroup=g.Name;showMode('use');}));
+        append(row,tools);
+        const sw=button('',()=>openColor(g),'pwr-swatch');
+        const color=Array.isArray(active?.color)?active.color[0]:active?.color;
+        sw.style.background=/^#[0-9a-f]{6}$/i.test(String(color||''))?String(color):'#6c3489';
+        sw.title='Color '+displayName(g.Name);row.appendChild(sw);
+        // Clicking the two halves cycles; slot name opens the item grid.
+        row.insertBefore(prev,mainBtn);
+        row.insertBefore(next,tools);
+        row.style.gridTemplateColumns='27px minmax(0,1fr) 27px 35px 32px';
       }
-      append(hexBox,actionRow,node('p','Each swatch edits its own BC ColorIndex. Colors are kept in the private draft, saved with outfit presets, and shared only after Save & share. Some sprite layers intentionally share the same color index.','pwr-help'));
-      drawPlane();
+      addPager(groups.length,per);
+    } else if(app.nativeMode==='catalog') {
+      if(!currentGroup){showMode('slots');return;}
+      heading.textContent='Select '+displayName(currentGroup.Description||currentGroup.Name);
+      append(headActions,button('◀ Back',()=>showMode('slots')));
+      append(headActions,button('🎨',()=>showMode('colors')));
+      append(headActions,button('⚙',()=>showMode('use')));
+      const search=node('input');search.type='search';search.className='pwr-search';search.placeholder='Search items...';search.value=app.nativeSearchAsset||'';
+      area.appendChild(search);
+      search.addEventListener('input',()=>{
+        app.nativeSearchAsset=search.value;
+        const caret=search.selectionStart;
+        clearTimeout(app.nativeSearchTimer);
+        app.nativeSearchTimer=setTimeout(()=>{
+          if(app.studio!==st||app.nativeMode!=='catalog')return;
+          app.nativePage=0;renderStudio();
+          const fresh=root.querySelector('.pwr-list-scroll .pwr-search');
+          if(fresh){fresh.focus();try{fresh.setSelectionRange(caret,caret);}catch(_){} }
+        },150);
+      });
+      const term=(app.nativeSearchAsset||'').toLowerCase();
+      const items=sortedChoices(currentGroup).filter(a=>!a||(`${a.Name} ${a.Description||''}`).toLowerCase().includes(term));
+      const per=6;app.nativePage=Math.min(app.nativePage,Math.max(0,Math.ceil(items.length/per)-1));
+      const grid=node('div',undefined,'pwr-catalog');area.appendChild(grid);
+      for(const [idx,asset] of items.slice(app.nativePage*per,app.nativePage*per+per).entries()){
+        const active=recFor(currentGroup),chosen=asset?active?.asset===asset.Name:!active;
+        const tile=button('',()=>selectAsset(currentGroup,asset),'pwr-catalog-tile'+(chosen?' pwr-selected':''));
+        const art=node('div',undefined,'pwr-tile-art');tile.appendChild(art);
+        const title=asset?displayName(asset.Description||asset.Name):'(None / Remove)';
+        append(tile,node('div',title,'pwr-tile-label'));
+        append(tile,node('div',asset?.Name||'Remove','pwr-tile-sub'));
+        grid.appendChild(tile);
+        if(!asset){append(art,node('div','✕','pwr-tile-placeholder'));continue;}
+        // Prefer BC-provided inventory artwork. Only fall back to one idle
+        // character render per visible item when BC exposes no preview image.
+        const a=asset;let path='';
+        for(const name of ['InventoryGetItemPath','AssetGetInventoryPath']) {
+          try {
+            const fn=globalThis[name];
+            if(typeof fn!=='function')continue;
+            const found=fn(a);
+            if(typeof found==='string'&&/\.(?:png|jpe?g|webp)(?:\?|$)/i.test(found)) {path=found;break;}
+          }catch(_){ }
+        }
+        if(!path && typeof a.PreviewImage==='string' && /\.(?:png|jpe?g|webp)/i.test(a.PreviewImage))path=a.PreviewImage;
+        const image=node('img');image.alt=title;image.loading='lazy';art.appendChild(image);
+        const cacheKey=`${member(c)}:${currentGroup.Name}:${a.Name}:${st.fit}`;
+        const applyCached=()=>{if(app.nativeThumbCache.has(cacheKey))image.src=app.nativeThumbCache.get(cacheKey);};
+        const fallback=()=>{
+          if(thumbToken!==app.nativeThumbToken||!image.isConnected)return;
+          if(app.nativeThumbCache.has(cacheKey)){applyCached();return;}
+          const look=cloneJson(st.look).filter(r=>r.group!==currentGroup.Name);
+          look.push({group:currentGroup.Name,asset:a.Name,color:'Default'});
+          const cache=new WeakMap();
+          const render=()=>{
+            if(thumbToken!==app.nativeThumbToken||!image.isConnected)return;
+            const replica=getRenderClone(c,look,cache,render,st.fit,st.braChest);
+            if(!replica?.Canvas)return;
+            try{
+              const source=replica.Canvas;
+              const small=document.createElement('canvas');small.width=160;small.height=105;
+              const ctx=small.getContext('2d');if(!ctx)return;
+              const bounds=thumbnailFocusBounds(source,null,currentGroup,160/105);
+              const size=Math.min(160/bounds.width,105/bounds.height);
+              const w=bounds.width*size,h=bounds.height*size;
+              ctx.drawImage(source,bounds.x,bounds.y,bounds.width,bounds.height,(160-w)/2,(105-h)/2,w,h);
+              const data=small.toDataURL('image/png');
+              if(app.nativeThumbCache.size>=42)app.nativeThumbCache.delete(app.nativeThumbCache.keys().next().value);
+              app.nativeThumbCache.set(cacheKey,data);image.src=data;
+            }catch(_){image.remove();append(art,node('div','✧','pwr-tile-placeholder'));}
+          };
+          setTimeout(render,250+idx*280); // one small preview task at a time, never on resize
+        };
+        if(path){image.onerror=fallback;image.src=path;}
+        else fallback();
+      }
+      addPager(items.length,per);
+    } else if(app.nativeMode==='colors'){
+      heading.textContent='Select '+displayName(currentGroup?.Description||currentGroup?.Name||'item')+' colors';
+      append(headActions,button('◀ Back',()=>showMode('catalog')));
+      const rec=currentGroup?recFor(currentGroup):null;
+      const asset=rec&&currentGroup?assetByName(c,currentGroup,rec.asset):null;
+      const definitions=colorLayerDefinitions(asset,currentGroup,rec?.color);
+      const controls=node('div',undefined,'pwr-setting-body');area.appendChild(controls);
+      if(!rec||!definitions.length){append(controls,node('p','Choose a colorable item first.','pwr-note'));}
+      else{
+        const colors=colorLayersForRecord(rec,definitions.length);
+        for(const layer of definitions){
+          const row=node('div',undefined,'pwr-setting-row');controls.appendChild(row);
+          append(row,node('label',layer.title));
+          const val=colors[layer.index];
+          const color=node('input');color.type='color';color.value=/^#[\da-f]{6}$/i.test(val)?val:'#a46cb5';
+          const hex=node('input');hex.type='text';hex.value=val;hex.maxLength=9;hex.placeholder='#RRGGBB';
+          color.addEventListener('input',()=>{hex.value=color.value.toUpperCase();});
+          const apply=()=>{
+            const raw=hex.value.trim().toUpperCase();
+            if(!/^#[0-9A-F]{6}$/.test(raw) && raw!=='DEFAULT')return;
+            modifyStudio(list=>{
+              const item=list.find(x=>x.group===currentGroup.Name);if(item)recolorSingleLayer(item,definitions.length,layer.index,raw==='DEFAULT'?'Default':raw);
+            });
+          };
+          hex.addEventListener('keydown',event=>{if(event.key==='Enter')apply();});
+          append(row,color,hex,button('✓',apply),button('↺',()=>{
+            modifyStudio(list=>{const item=list.find(x=>x.group===currentGroup.Name);if(item)recolorSingleLayer(item,definitions.length,layer.index,'Default');});
+          }));
+        }
+      }
+      append(controls,node('div','Each color index is saved separately. Editing stays private until Save & share.','pwr-note'));
+      pages.style.display='none';
+    } else if(app.nativeMode==='use') {
+      heading.textContent='Use / configure item';append(headActions,button('◀ Back',()=>showMode('slots')));
+      const controls=node('div',undefined,'pwr-setting-body');area.appendChild(controls);
+      const rec=currentGroup?recFor(currentGroup):null;
+      const asset=rec?assetByName(c,currentGroup,rec.asset):null;
+      const options=itemVisualOptions(asset);
+      append(controls,node('strong',rec?displayName(asset?.Description||rec.asset):'No equipped item'));
+      if(!options.length)append(controls,node('p','No supported private visual Use options for this item. Live device actions are intentionally excluded.','pwr-note'));
+      else for(const choice of options.slice(0,30)){
+        append(controls,button(choice.name,()=>{
+          modifyStudio(list=>{const item=list.find(x=>x.group===currentGroup.Name);if(item)item.use={type:choice.type,...(choice.typeRecord?{typeRecord:choice.typeRecord}:{})};});
+        }));
+      }
+      append(controls,button('Fine-tune position / size',()=>showMode('adjust')));
+      pages.style.display='none';
+    } else if(app.nativeMode==='adjust') {
+      heading.textContent='Adjust selected item';append(headActions,button('◀ Back',()=>showMode('slots')));
+      const controls=node('div',undefined,'pwr-setting-body');area.appendChild(controls);
+      const rec=currentGroup?recFor(currentGroup):null;
+      if(!rec||!adjustableRecord(c,rec))append(controls,node('p','Select adjustable clothing or an accessory first.','pwr-note'));
+      else{
+        append(controls,node('strong',displayName(rec.asset)));
+        const enable=node('label');enable.style.cssText='display:flex;gap:8px;align-items:center';
+        const cb=node('input');cb.type='checkbox';cb.checked=!!st.dragEnabled;
+        cb.addEventListener('change',()=>{st.dragEnabled=cb.checked;renderStudio();});
+        append(enable,cb,node('span','Drag item on character preview'));
+        controls.appendChild(enable);
+        const fields=[['x','X position',-180,180],['y','Y position',-250,250],['scaleX','Width',40,180],['scaleY','Height',40,180],['angle','Rotation',-180,180],['opacity','Opacity',0,100],['priority','Layer order',-5,5]];
+        for(const [field,title,min,max] of fields){
+          const row=node('div',undefined,'pwr-setting-row');controls.appendChild(row);
+          append(row,node('label',title));
+          const input=node('input');input.type='number';input.min=String(min);input.max=String(max);
+          input.value=String(rec.tune?.[field]??DEFAULT_TUNE[field]);
+          const save=()=>{
+            modifyStudioTuneFast(list=>{
+              const item=list.find(x=>x.group===currentGroup.Name);if(!item)return;
+              const t=normalizeTune({...DEFAULT_TUNE,...(item.tune||{}),[field]:Number(input.value)});
+              if(t)item.tune=t;else delete item.tune;
+            });
+          };
+          input.addEventListener('change',save);append(row,input,button('✓',save));
+        }
+        append(controls,button('Reset all adjustments',()=>modifyStudio(list=>{const item=list.find(x=>x.group===currentGroup.Name);if(item)delete item.tune;})));
+      }
+      pages.style.display='none';
+    } else if(app.nativeMode==='presets') {
+      heading.textContent='Private saved outfits';append(headActions,button('◀ Back',()=>showMode('slots')));
+      const controls=node('div',undefined,'pwr-setting-body');area.appendChild(controls);
+      const saveRow=node('div',undefined,'pwr-save-row');
+      const name=node('input');name.type='text';name.placeholder='Outfit name';name.maxLength=60;
+      append(saveRow,name,button('Save draft',()=>saveOutfitPreset(name.value)));
+      controls.appendChild(saveRow);
+      for(const preset of savedOutfitsFor(st)) {
+        const row=node('div',undefined,'pwr-preset');
+        append(row,node('span',preset.name||'Untitled'),button('Load',()=>loadOutfitPreset(preset.id)),button('Delete',()=>deleteOutfitPreset(preset.id)));
+        controls.appendChild(row);
+      }
+      pages.style.display='none';
     }
     const bottom=node('div',undefined,'pwr-bottom');shell.appendChild(bottom);
-    const quick=node('div',undefined,'pwr-row');
-    append(quick,button('Remove all clothing',()=>modifyStudio((list,character)=>{
-      const remove=new Set(assetGroups(character).filter(g=>isClothes(g)&&g.AllowNone).map(g=>g.Name));
-      for(let i=list.length-1;i>=0;i--)if(remove.has(list[i].group))list.splice(i,1);
-    })),button('Copy public look',()=>modifyStudio((list,character)=>list.splice(0,list.length,...snapshot(character))),'pwr-secondary'),
-    button('Reset private look',clearPrivateLook,'pwr-danger'));
-    const bottomTop=node('div',undefined,'pwr-bottom-top');append(bottomTop,node('span','QUICK ACTIONS','pwr-label-upper'));append(bottomTop,quick);append(bottom,bottomTop);
-    append(bottom,node('div','Save & share commits a visual-only look. Catalog access ignores gender/purchases, but missing gender-specific sprite art may not render. Public clothes, restraints, inventory, permissions, and interactions are never changed.','pwr-help'));
+    const leftActions=node('div',undefined,'pwr-actions');bottom.appendChild(leftActions);
+    append(leftActions,button('Remove clothing',()=>modifyStudio((look,char)=>{
+      const removable=new Set(assetGroups(char).filter(g=>isClothes(g)&&g.AllowNone).map(g=>g.Name));
+      for(let i=look.length-1;i>=0;i--)if(removable.has(look[i].group))look.splice(i,1);
+    })),button('Copy public',()=>modifyStudio((look,char)=>look.splice(0,look.length,...snapshot(char)))));
+    const rightActions=node('div',undefined,'pwr-actions');bottom.appendChild(rightActions);
+    append(rightActions,button('Private fit: '+(st.fit||'auto'),()=>changeStudioFit(st.fit==='auto'?'flat':st.fit==='flat'?'original':'auto',st.braChest)),
+      button('Reset private look',clearPrivateLook,'pwr-cancel'));
     drawStudioCanvas();
-    // Asset images can become ready after CharacterLoadCanvas returns. Retry
-    // against the *same* draft so the first click always schedules its preview.
-    const previewCanvas=canvas;
-    for(const delay of [20,90,220,500,1100])setTimeout(()=>{
-      if(app.studio===st && app.studioDrawTicket===ticket &&
-         app.studioPanel?.querySelector('.pwr-character-canvas')===previewCanvas)drawStudioCanvas();
-    },delay);
-    // The portrait is deliberately fixed-size. The scene adapts via CSS on
-    // browser resizing, so a ResizeObserver must NOT redraw BC's character
-    // canvas for every pixel of a resize (or on scrollbar/layout feedback).
-    // This was a major source of stalls when dragging the browser edge.
+    // One delayed retry for late BC images, never a loop tied to resizing.
+    const ticket=app.studioDrawTicket;
+    setTimeout(()=>{
+      if(app.studio===st && app.studioDrawTicket===ticket && canvas.isConnected)drawStudioCanvas();
+    },400);
   }
+
   function applyLauncherPosition() {
     const b=app.launcher;if(!b)return;
     if(!app.launcherPosition){b.style.left='';b.style.top='';b.style.right='18px';b.style.bottom='112px';return;}
@@ -2613,7 +1885,7 @@
   }
   function heartbeat() {
     if(!app.ready)return;
-    loadSettings();
+    // Do not deserialize the full wardrobe every heartbeat; it can undo draft UI state.
     const ps=partners();
     const chosen=currentPartner();
     for(const c of ps) if(app.enabled)sendHello(member(c));
@@ -2625,10 +1897,10 @@
     if(!ps.length && (app.peers.size||Object.keys(app.remote).length||app.studio)) {app.peers.clear();app.remote={};if(app.studio)closeStudio();refreshView();}
   }
   function init() {
-    if(app.ready)return;
+    if(app.ready || app.initFatal)return;
     if(!me())return;
     loadSettings();
-    if(!addHooks()) {app.status='Requires BC ModSDK / bcModSdk to be loaded first.';return;}
+    if(!addHooks()) {app.status=app.initFatal?'Startup aborted: previous ModSDK registration or hook failure. Disable other versions and refresh.':'Waiting for BC ModSDK';return;}
     app.ready=true;app.status='Ready (beta)';installUI();heartbeat();
     document.addEventListener('keydown',event=>{
       if(!app.studio || app.studioPanel?.style.display==='none')return;
@@ -2702,6 +1974,6 @@
     console.log(`[Paw Private Wardrobe] ${VERSION} initialized`);
   }
   if (globalThis.PawPrivateWardrobe) {console.warn('[Paw Private Wardrobe] Already loaded. Disable older versions of the userscript and refresh.');return;}
-  const timer=setInterval(()=>{if(!app.ready)init();else heartbeat();},4000);
+  const timer=setInterval(()=>{if(!app.ready && !app.initFatal)init();else if(app.ready)heartbeat();},12000);
   init();
 })();
