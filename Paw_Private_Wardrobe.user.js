@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.3.0-beta
+// @version      0.3.1-beta
 // @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.3.0
+ * Paw Private Wardrobe, beta 0.3.1
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.3.0-beta';
+  const VERSION = '0.3.1-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -120,10 +120,10 @@
 
 `;
   const app = {
-    ready: false, mod: null, enabled: true, allowPartnerEdits: true,
+    ready: false, mod: null, enabled: true, allowPartnerEdits: true, freezePrivateAnimations: true,
     selected: 0, panel: null, launcher: null, status: 'Starting...',
     profiles: {}, outfits: {}, launcherPosition: null, favorites: {}, favoritesOnly: false, sections: {slots:true,styles:true,tuning:false,use:false,colors:false,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, studioLayout: 'bc', previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, thumbnailFocus: 'item', lastSent: new Map(), peers: new Map(),
-    packets: new Map(), clones: new WeakMap(), generation: 1,
+    packets: new Map(), clones: new WeakMap(), generation: 1, privateCloneBuilds: 0, privateCloneCacheHits: 0, frozenBaseRefreshes: 0,
     drawScope: 0, nativeDrawScope: 0, roomDrawHookAvailable: false, roomDrawHookSeen: false, roomDrawCalls: 0, privateDrawCalls: 0, nativeDrawSkips: 0, canvasHookCalls: 0, privateCanvasCalls: 0, canvasHookNames: [], nativeHookNames: [], renderReadyChecks: 0,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
     diagnostics: {dropped:[], lastEditSkipped:[], render:'not yet attempted', lastError:'', sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}},
@@ -549,10 +549,12 @@
     app.profiles = {}; app.outfits = {}; app.favorites = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap();
     app.diagnostics={dropped:[],lastEditSkipped:[],render:'not yet attempted',lastError:'',sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}};
     app.lastSent.clear(); app.packets.clear(); app.studio=null; app.studioClones=new WeakMap();
+    app.privateCloneBuilds=0;app.privateCloneCacheHits=0;app.frozenBaseRefreshes=0;
     try {
       const saved = JSON.parse(localStorage.getItem(configKey()) || '{}');
       if (saved && typeof saved === 'object') {
         app.enabled = saved.enabled !== false;
+        app.freezePrivateAnimations = saved.freezePrivateAnimations !== false;
         app.allowPartnerEdits = saved.allowPartnerEdits !== false && saved.allowOwnerEdits !== false;
         app.selected = Number.isInteger(saved.selected) ? saved.selected : 0;
         app.profiles = saved.profiles && typeof saved.profiles === 'object' ? saved.profiles : {};
@@ -587,7 +589,7 @@
   }
   function saveSettings() {
     if (!me()) return;
-    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,favorites:app.favorites,launcherPosition:app.launcherPosition,previewModeV3:true,braAutoSmallMigrated215:true,studioLayout:app.studioLayout,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails,thumbnailFocus:app.thumbnailFocus})); }
+    try { localStorage.setItem(configKey(), JSON.stringify({enabled:app.enabled,freezePrivateAnimations:app.freezePrivateAnimations,allowPartnerEdits:app.allowPartnerEdits,selected:app.selected,profiles:app.profiles,outfits:app.outfits,favorites:app.favorites,launcherPosition:app.launcherPosition,previewModeV3:true,braAutoSmallMigrated215:true,studioLayout:app.studioLayout,background:app.background,previewSize:app.previewSize,customBackground:app.customBackground,showThumbnails:app.showThumbnails,thumbnailFocus:app.thumbnailFocus})); }
     catch(err) { console.warn('[Paw Private Wardrobe] Local save failed:',err); }
   }
   const currentPartner = () => {
@@ -616,9 +618,8 @@
     requestRoomRedraw();
   }
   function requestRoomRedraw() {
-    try { if (typeof AnimationRequestRefreshRate === 'function') AnimationRequestRefreshRate(30); } catch (_) {}
-    try { if (typeof AnimationRequestDraw === 'function') AnimationRequestDraw(); } catch (_) {}
-    try { if (typeof DrawProcess === 'function') DrawProcess(0); } catch (_) {}
+    // One-shot update only; do not request 30 FPS or run a second full BC draw.
+    try { if (typeof AnimationRequestDraw === 'function') { AnimationRequestDraw(); return; } } catch (_) {}
     try { if (typeof ChatRoomCharacterViewUpdate === 'function') ChatRoomCharacterViewUpdate(); } catch (_) {}
   }
   const syncSend = (target, payload) => {
@@ -787,16 +788,27 @@
     // Set before registerMod: even a partial startup must never register twice.
     app.registrationAttempted=true;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.0'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.1'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
       });
-      // Rebuild private canvases after any ordinary BC appearance/pose refresh.
+      // BC rebuilds its public canvas for animated effects, blinks, sigils and
+      // poses. Keep the PRIVATE clone stable while freeze mode is enabled.
+      // The original BC refresh still runs, including room updates and native
+      // item interactions. This only skips Paw's duplicate render.
       app.mod.hookFunction('CharacterLoadCanvas', 10, (args,next) => {
         const result=next(args);
         const c=args[0];
-        if (c && !c.__PawPrivateReplica) app.clones.delete(c);
+        if (c && !c.__PawPrivateReplica) {
+          const isTarget=app.enabled && app.freezePrivateAnimations &&
+            (member(c)===member(me()) || member(c)===app.selected);
+          if (isTarget && app.clones.has(c)) {
+            app.frozenBaseRefreshes++;
+          } else {
+            app.clones.delete(c);
+          }
+        }
         return result;
       });
       // BC can leave DialogCharacter populated after closing a character menu.
@@ -903,7 +915,7 @@
         if(!look)continue;
         const clone=getRenderClone(c,look,app.clones,requestRoomRedraw,privateFit(c),privateBraChest(c));
         if(!clone || !clone.Canvas)continue;
-        const replacement=source===c.CanvasBlink ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
+        const replacement=source===c.CanvasBlink && !app.freezePrivateAnimations ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
         if(!replacement || replacement===source)continue;
         const updated=args.slice();
         updated[i]=replacement;
@@ -923,8 +935,11 @@
     braChest=normalizeBraChest(c,braChest);
     const cached=cache.get(c);
     // Stable array reference is a cheap draw-frame cache key. Edits always replace the array.
-    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.generation===app.generation)
+    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.generation===app.generation) {
+      if (cache===app.clones) app.privateCloneCacheHits++;
       return cached.pending ? null : cached.clone;
+    }
+    if (cache===app.clones) app.privateCloneBuilds++;
     const appearance=appearanceFor(c,look,fit,braChest);
     if (!appearance) {app.diagnostics.render='appearance data could not be normalized';return null;}
     // Never assign the modified appearance to the real Player or room character.
@@ -1298,6 +1313,13 @@
     checkbox(panel,'View private appearances (on my screen)',app.enabled,v=>{
       app.enabled=v;saveSettings();refreshView();syncSend(pid,{type:v?'HELLO':'DISABLED',enabled:v,accept:app.allowPartnerEdits,script:VERSION});renderPanel();
     });
+    checkbox(panel,'Freeze BC animation frames in my private view (faster)',app.freezePrivateAnimations,v=>{
+      app.freezePrivateAnimations=v;saveSettings();refreshView();renderPanel();
+    });
+    append(panel,node('p','While your private view is active, glowing effects, blinking and other game-driven appearance frames stay on the last saved private render. BC continues running normally; this does not block messages, permissions or public appearance changes.','pwr-help'));
+    append(panel,button('Refresh frozen character now',()=>{
+      refreshView();setStatus('Private character snapshot refreshed.');
+    },'pwr-secondary'));
     checkbox(panel,'Allow partner to change my private appearance',app.allowPartnerEdits,v=>{
       app.allowPartnerEdits=v;saveSettings();refreshView();sendHello(pid,true);renderPanel();
     });
@@ -1948,6 +1970,9 @@
           partnerFit:p?privateFit(p):null,localFit:me()?privateFit(me()):null,
           partnerBraChest:p?privateBraChest(p):null,localBraChest:me()?privateBraChest(me()):null,
           privateDrawCharacter:app.privateDrawCalls,privateDrawCanvas:app.privateCanvasCalls,
+          freezePrivateAnimations:app.freezePrivateAnimations,
+          privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,
+          frozenBaseRefreshes:app.frozenBaseRefreshes,
           drawCanvasCalls:app.canvasHookCalls,roomDrawCalls:app.roomDrawCalls,
           nativeDrawSkips:app.nativeDrawSkips,render:app.diagnostics.render,
           hookCoverage:{canvas:app.canvasHookNames,native:app.nativeHookNames}};
@@ -1963,9 +1988,14 @@
         const p=currentPartner(),sub=app.studio?.subject||member(me()),c=findChar(sub);
         const look=app.studio?.look || snapshot(c);
         const checked=normalizeLook(c,look);
-        return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,studioLayout:app.studioLayout,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,history:{undo:app.studio?.undo?.length||0,redo:app.studio?.redo?.length||0},favoriteCount:Object.keys(app.favorites).length,comparePublic:!!app.studio?.comparePublic,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
+        return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,studioLayout:app.studioLayout,freezePrivateAnimations:app.freezePrivateAnimations,privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,frozenBaseRefreshes:app.frozenBaseRefreshes,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,history:{undo:app.studio?.undo?.length||0,redo:app.studio?.redo?.length||0},favoriteCount:Object.keys(app.favorites).length,comparePublic:!!app.studio?.comparePublic,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
       },
       refresh(){refreshView();},
+      setFreezePrivateAnimations(enabled) {
+        app.freezePrivateAnimations=!!enabled;saveSettings();refreshView();
+        if(app.panel && app.panel.style.display!=='none')renderPanel();
+        return app.freezePrivateAnimations;
+      },
       savedOutfits(){return app.studio?savedOutfitsFor(app.studio).map(x=>({id:x.id,name:x.name,savedAt:x.savedAt})):[];},
       resetLauncher(){app.launcherPosition=null;saveSettings();applyLauncherPosition();},
       // Emergency local-only switch, never changes public appearance.
