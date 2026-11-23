@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.2.25-beta
+// @version      0.2.26-beta
 // @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.2.25
+ * Paw Private Wardrobe, beta 0.2.26
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.2.25-beta';
+  const VERSION = '0.2.26-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -1074,7 +1074,7 @@
   function addHooks() {
     if (!globalThis.bcModSdk || typeof globalThis.bcModSdk.registerMod !== 'function') return false;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.25'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.2.26'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -1128,7 +1128,12 @@
       app.mod.hookFunction('DrawCharacter', 15, (args,next) => {
         const C=args[0];
         try {
-          if (app.enabled && C && member(C) && eligiblePartnerForCharacter(C)) {
+          const subjectId=member(C);
+          // Fast-path: the room draws many unrelated characters each frame.
+          // Only the current account and selected partner can have a private look.
+          if (app.enabled && C && subjectId &&
+              (subjectId===member(me()) || subjectId===app.selected) &&
+              eligiblePartnerForCharacter(C)) {
             const inRoomDraw = app.drawScope > 0;
             if (!inRoomDraw && isNativeInteractionOpen()) {
               app.nativeDrawSkips++;
@@ -1170,13 +1175,16 @@
     // Some BC views draw the stored character canvases directly, without
     // calling DrawCharacter. Never rewrite canvas data or actual Appearance;
     // replace only the source-canvas argument for this single draw call.
-    const partner=currentPartner();
-    if (!partner) return null;
-    const targets=[me(),partner];
+    // This function is called for *every* room canvas operation. Most calls
+    // draw backgrounds/UI/other players, not one of our two characters. Check
+    // canvas identity first; don't scan relationships until we find a match.
+    const own=me();
+    const partner=app.selected ? findChar(app.selected) : null;
+    if(!own && !partner)return null;
     for(let i=0;i<Math.min(args.length,10);i++) {
       const source=args[i];
       if (!source || (typeof source!=='object' && typeof source!=='function')) continue;
-      for(const c of targets){
+      for(const c of [own,partner]){
         if(!c || !c.Canvas || (source!==c.Canvas && source!==c.CanvasBlink))continue;
         const look=effectiveLook(c);
         if(!look)continue;
@@ -1477,6 +1485,25 @@
     st.look=checked;st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
     app.studioClones=new WeakMap();app.diagnostics.lastEditSkipped=app.diagnostics.dropped.slice();renderStudio();
   }
+  // A fine-tune slider changes the image of ONE existing item, not the
+  // gallery selection. Avoid rebuilding 6 complete thumbnail characters and
+  // every wardrobe control just to resize/move/fade the chosen accessory.
+  function modifyStudioTuneFast(callback) {
+    const st=app.studio;if(!st)return;
+    const c=findChar(st.subject);if(!c)return;
+    const updated=cloneJson(st.look);callback(updated,c);
+    const checked=validateLook(c,updated);
+    if(!checked){setStatus('Invalid appearance edit.');return;}
+    if(JSON.stringify(checked)===JSON.stringify(st.look))return;
+    recordStudioChange(st);
+    st.look=checked;st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
+    app.studioClones=new WeakMap();app.diagnostics.lastEditSkipped=app.diagnostics.dropped.slice();
+    // Keep the existing controls and thumbnails mounted. Only the character
+    // render, which is now using the modified draft, needs recomposition.
+    const history=app.studioPanel?.querySelectorAll('.pwr-history-btn');
+    if(history?.length>1){history[0].disabled=!st.undo.length;history[1].disabled=!st.redo.length;}
+    drawStudioCanvas();
+  }
   function clearPrivateLook() {
     const st=app.studio;if(!st)return;
     const changed=Date.now(),pid=st.partner,subject=st.subject;
@@ -1720,7 +1747,7 @@
       const destW=visibleHeight*(b.width/b.height);
       const cssW=Math.max(1,Math.ceil(destW+padding*2));
       const cssH=visibleHeight+padding*2;
-      const dpr=Math.min(2,Math.max(1,Number(globalThis.devicePixelRatio)||1));
+      const dpr=Math.min(1.5,Math.max(1,Number(globalThis.devicePixelRatio)||1));
       const cw=Math.max(1,Math.min(4096,Math.round(cssW*dpr)));
       const ch=Math.max(1,Math.min(4096,Math.round(cssH*dpr)));
       canvas.style.width=cssW+'px';canvas.style.height=cssH+'px';
@@ -1738,6 +1765,7 @@
   function renderStudio() {
     const root=app.studioPanel,st=app.studio;if(!root||!st||root.style.display==='none')return;
     if(app.studioResizeObserver){app.studioResizeObserver.disconnect();app.studioResizeObserver=null;}
+    const ticket=++app.studioDrawTicket;
     root.replaceChildren();
     root.classList.toggle('pwr-native',app.studioLayout==='bc');
     const c=findChar(st.subject),partner=findChar(st.partner);
@@ -1839,18 +1867,8 @@
         if(newX===drag.x&&newY===drag.y)return;
         drag.x=newX;drag.y=newY;drag.moved=true;
         delta.textContent=`Offset X ${newX}px · Y ${newY}px`;
-        // Show the new placement during the drag, but rate-limit expensive BC renders.
-        const now=Date.now();
-        if(now-drag.lastPaint>300){
-          drag.lastPaint=now;
-          const draft=cloneJson(st.look);
-          const item=draft.find(r=>r.group===drag.group&&r.asset===drag.asset);
-          if(item){
-            item.tune={...DEFAULT_TUNE,...(normalizeTune(item.tune)||{}),x:newX,y:newY};
-            st.dragTempLook=draft;st.dragTempClones=new WeakMap();
-            drawStudioCanvas();
-          }
-        }
+        // Deliberately defer full BC composition until pointerup: continuous
+        // pointermove must not rebuild character clones while dragging.
         e.preventDefault();
       };
       surface.addEventListener('pointerdown',e=>{
@@ -1859,7 +1877,7 @@
         if(!Number.isFinite(scale)||scale<=0){delta.textContent='Preview still loading — try again';return;}
         const tune=normalizeTune(activeDragRecord.tune)||DEFAULT_TUNE;
         drag={id:e.pointerId,clientX:e.clientX,clientY:e.clientY,scalar:scale,
-          startX:tune.x,startY:tune.y,x:tune.x,y:tune.y,moved:false,lastPaint:0,
+          startX:tune.x,startY:tune.y,x:tune.x,y:tune.y,moved:false,
           group:activeDragRecord.group,asset:activeDragRecord.asset};
         surface.classList.add('pwr-moving');
         try{surface.setPointerCapture(e.pointerId);}catch(_){}
@@ -2135,6 +2153,24 @@
     function invalidateThumbnailClone(cache,character) {
       try {cache.delete(character);referenceCache.delete(character);}catch(_){}
     }
+    // Preview work can be very expensive: each candidate is a complete BC
+    // character canvas, not just an item sprite. Keep at most two tasks active
+    // and defer cards until they are near the viewport. Cancellation is scoped
+    // to a single gallery page so old pages never continue rendering.
+    let galleryToken=0,previewObserver=null,previewQueue=[],previewActive=0;
+    const MAX_PREVIEW_JOBS=2;
+    function drainPreviewQueue() {
+      while(previewActive<MAX_PREVIEW_JOBS && previewQueue.length){
+        const job=previewQueue.shift();
+        if(!job.valid())continue;
+        previewActive++;
+        job.start(()=>{
+          if(job.token!==galleryToken)return;
+          previewActive=Math.max(0,previewActive-1);
+          drainPreviewQueue();
+        });
+      }
+    }
     function addTilePreview(tile,asset) {
       if(!app.showThumbnails)return;
       if(!asset){append(tile,node('div','✕ Remove','pwr-preview-placeholder'));return;}
@@ -2146,12 +2182,14 @@
       mini.height=mode==='body'?340:mode==='hair'?250:(mode==='upper-body'||mode==='lower-body')?240:198;
       mini.className='pwr-asset-preview';mini.title='Preview '+asset.Name;
       append(visual,mini);append(tile,visual);
-      const hint=node('div','Loading preview…','pwr-preview-pending');
-      append(visual,hint);
+      const hint=node('div','Loading preview…','pwr-preview-pending');append(visual,hint);
       const cache=new WeakMap();
-      let drawn=false,tries=0,refreshes=0,stopped=false;
-      const canContinue=()=>app.studio===st && mini.isConnected && !stopped;
-      const schedule=(delay)=>{if(canContinue())setTimeout(draw,delay);};
+      const token=galleryToken,studioSession=app.studioDrawTicket;
+      let tries=0,done=false,started=false,release=()=>{};
+      const canContinue=()=>app.studio===st && app.studioDrawTicket===studioSession &&
+        token===galleryToken && mini.isConnected && app.showThumbnails;
+      const finish=()=>{if(done)return;done=true;release();};
+      const schedule=(delay)=>{if(canContinue())setTimeout(draw,delay);else finish();};
       const paint=(src,box)=>{
         const ctx=mini.getContext?.('2d',{willReadFrequently:true});
         if(!ctx||!box||box.width<=0||box.height<=0)return false;
@@ -2163,14 +2201,12 @@
         return thumbHasPixels(mini);
       };
       const draw=()=>{
-        if(!canContinue())return;
+        if(done || !canContinue()){finish();return;}
         let visible=false;
         try {
           const replica=getRenderClone(c,look,cache,draw,st.fit,st.braChest);
           const source=replica?.Canvas;
           if(source && thumbnailCanvasReady(source)) {
-            // A failed/delayed reference should never prevent the candidate
-            // itself from appearing. Use slot-based framing until both render.
             const same=current?.asset===asset.Name;
             const referenceNeeded=app.thumbnailFocus==='item'&&mode==='item'&&!same;
             const baseline=referenceNeeded?getRenderClone(c,referenceLook,referenceCache,draw,st.fit,st.braChest):null;
@@ -2178,40 +2214,47 @@
             const focused=app.thumbnailFocus==='full'?visibleStudioBounds(source)
               :thumbnailFocusBounds(source,baseReady?baseline.Canvas:null,group,mini.width/mini.height);
             visible=paint(source,focused);
-            // Assets which extend beyond their slot or whose crop arrives
-            // partially loaded are retried using the full visible silhouette.
             if(!visible)visible=paint(source,visibleStudioBounds(source));
             if(!visible)visible=paint(source,{x:0,y:0,width:source.width,height:source.height});
           }
-        }catch(err){
-          if(tries===0)console.debug('[Paw Private Wardrobe] Thumbnail retry:',group.Name,asset.Name,String(err));
-        }
+        }catch(err){if(tries===0)console.debug('[Paw Private Wardrobe] Thumbnail:',group.Name,asset.Name,String(err));}
         if(visible){
-          hint.remove();drawn=true;
-          // One late refresh after the first nonblank drawing catches assets
-          // that load additional sprite layers asynchronously.
-          // Also rebuild after a partially drawn character succeeds: a
-          // nonempty image alone does not prove all of its item art is ready.
-          if(refreshes++<3){
-            if(refreshes===1 || refreshes===3)invalidateThumbnailClone(cache,c);
-            schedule(refreshes===1?650:refreshes===2?1600:2600);
-          }
-        }else if(tries++<22){
-          if([3,7,12,17].includes(tries))invalidateThumbnailClone(cache,c);
-          schedule(160+Math.min(tries*165,1150));
-        }else if(!drawn){
-          stopped=true;hint.textContent='Preview unavailable';
-          hint.classList.add('pwr-preview-unavailable');
+          hint.remove();finish();
+        }else if(++tries<=10){
+          // Rebuild a delayed BC sprite only when the image remains blank.
+          // Never rebuild already successful thumbnails repeatedly.
+          if([3,6,9].includes(tries))invalidateThumbnailClone(cache,c);
+          schedule(140+Math.min(tries*115,670));
+        }else{
+          hint.textContent='Preview unavailable';hint.classList.add('pwr-preview-unavailable');
           hint.title='BC has not provided a drawable preview for this asset.';
+          finish();
         }
       };
-      // Throttle candidate renders to reduce stalls when selecting a catalog
-      // with many asset variants. Do not hide the labels while loading.
-      const stagger=100*(thumbIndex++);
-      if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>setTimeout(draw,stagger));
-      else setTimeout(draw,stagger);
+      const activate=()=>{
+        if(started||!canContinue())return;
+        started=true;
+        previewQueue.push({token,valid:canContinue,start:(end)=>{release=end;draw();}});
+        drainPreviewQueue();
+      };
+      // An observer avoids drawing thumbnails for cards that are offscreen.
+      // If unavailable, the same concurrency-limited scheduler is used.
+      if(previewObserver)previewObserver.observe(tile);
+      else setTimeout(activate,40);
+      tile.__pawActivatePreview=activate;
     }
     function renderAssetGrid() {
+      galleryToken++;
+      if(previewObserver){previewObserver.disconnect();previewObserver=null;}
+      previewQueue=[];previewActive=0;
+      if(app.showThumbnails && typeof IntersectionObserver==='function'){
+        previewObserver=new IntersectionObserver(entries=>{
+          for(const entry of entries)if(entry.isIntersecting){
+            previewObserver?.unobserve(entry.target);
+            entry.target.__pawActivatePreview?.();
+          }
+        },{root:side,rootMargin:'240px 0px',threshold:0});
+      }
       const all=groupAssets(group).filter(a=>a?.Name);
       const filtered=all.filter(a=>`${a.Name} ${a.Description||''}`.toLowerCase().includes(app.editorSearch.toLowerCase()));
       const visible=app.favoritesOnly?filtered.filter(a=>isFavorite(group.Name,a.Name)):filtered;
@@ -2286,7 +2329,7 @@
       const grid=node('div',undefined,'pwr-tune-grid');
       const fields=[['opacity','Opacity','%'],['x','Horizontal offset',' px'],['y','Vertical offset',' px'],['angle','Rotation','°'],['scaleX','Width scale','%'],['scaleY','Height scale','%'],['priority','Overlay order','']];
       const setField=(field,value)=>{
-        modifyStudio(list=>{const item=list.find(r=>r.group===group.Name);if(!item)return;
+        modifyStudioTuneFast(list=>{const item=list.find(r=>r.group===group.Name);if(!item)return;
           item.tune={...DEFAULT_TUNE,...(normalizeTune(item.tune)||{}),[field]:value};
         });
       };
@@ -2308,9 +2351,13 @@
       }
       append(tuningSection,mirror);
       const actions=node('div',undefined,'pwr-tune-actions');
-      append(actions,button('Reset item adjustments',()=>modifyStudio(list=>{
-        const item=list.find(r=>r.group===group.Name);if(item)delete item.tune;
-      }),'pwr-secondary'));
+      append(actions,button('Reset item adjustments',()=>{
+        modifyStudioTuneFast(list=>{
+          const item=list.find(r=>r.group===group.Name);if(item)delete item.tune;
+        });
+        // Refresh slider labels/control values once; the reset is infrequent.
+        renderStudio();
+      },'pwr-secondary'));
       append(tuningSection,actions);
     }
     // BC's safe, visual-only extended item variant picker. It is NOT the
@@ -2510,18 +2557,15 @@
     drawStudioCanvas();
     // Asset images can become ready after CharacterLoadCanvas returns. Retry
     // against the *same* draft so the first click always schedules its preview.
-    const ticket=++app.studioDrawTicket;
     const previewCanvas=canvas;
     for(const delay of [20,90,220,500,1100])setTimeout(()=>{
       if(app.studio===st && app.studioDrawTicket===ticket &&
          app.studioPanel?.querySelector('.pwr-character-canvas')===previewCanvas)drawStudioCanvas();
     },delay);
-    if(typeof ResizeObserver==='function'){
-      const observer=new ResizeObserver(()=>{
-        if(app.studio===st && app.studioPanel?.querySelector('.pwr-scene')===scene)drawStudioCanvas();
-      });
-      observer.observe(scene);app.studioResizeObserver=observer;
-    }
+    // The portrait is deliberately fixed-size. The scene adapts via CSS on
+    // browser resizing, so a ResizeObserver must NOT redraw BC's character
+    // canvas for every pixel of a resize (or on scrollbar/layout feedback).
+    // This was a major source of stalls when dragging the browser edge.
   }
   function applyLauncherPosition() {
     const b=app.launcher;if(!b)return;
@@ -2595,7 +2639,7 @@
       if(key==='z') {event.preventDefault();if(event.shiftKey)redoStudio();else undoStudio();}
       else if(key==='y') {event.preventDefault();redoStudio();}
     });
-    if(typeof ResizeObserver!=='function' && typeof window!=='undefined')window.addEventListener('resize',()=>{if(app.studio)drawStudioCanvas();});
+    // Window resize only changes CSS layout; fixed-size character pixels remain cached.
     globalThis.PawPrivateWardrobe = Object.freeze({
       version:VERSION,
       open(){app.panel.style.display='block';renderPanel();},
