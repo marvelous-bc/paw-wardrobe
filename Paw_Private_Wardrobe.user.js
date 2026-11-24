@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.3.1-beta
+// @version      0.3.4-beta
 // @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.3.1
+ * Paw Private Wardrobe, beta 0.3.4
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.3.1-beta';
+  const VERSION = '0.3.4-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -91,8 +91,8 @@
 #pwr-studio .pwr-catalog{padding:8px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-content:start}
 #pwr-studio .pwr-catalog-tile{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;padding:5px!important;overflow:hidden;min-height:158px;background:#262229!important}
 #pwr-studio .pwr-catalog-tile.pwr-selected{background:#2d5687!important}
-#pwr-studio .pwr-tile-art{height:111px;min-height:111px;display:grid;place-items:center;overflow:hidden;background:#1f1f24;position:relative}
-#pwr-studio .pwr-tile-art img{width:100%;height:100%;object-fit:contain}
+#pwr-studio .pwr-tile-art{height:111px;min-height:111px;display:grid;place-items:center;overflow:hidden;background:#28252e;position:relative}
+#pwr-studio .pwr-tile-art img{width:100%;height:100%;object-fit:contain;padding:4px}
 #pwr-studio .pwr-tile-art canvas{width:100%;height:100%;display:block;object-fit:contain}
 #pwr-studio .pwr-tile-placeholder{font-size:25px;color:#9765b2;line-height:1;text-align:center}
 #pwr-studio .pwr-tile-label{font-size:12px;line-height:1.15;text-align:center;word-break:break-word}
@@ -235,6 +235,42 @@
   };
   // BC layers share a ColorIndex when they are colored together. Present
   // those indices, not every painted sprite/image, as independent choices.
+  // The native BC inventory icons are standalone PNG artwork per asset,
+  // stored separately from the 500x1000 character render layers. Resolve
+  // those icons for EVERY group (clothing, hair, body, accessories and gear).
+  // Avoid drawing a character into item tiles: that is slower and can display
+  // the wearer's body/feet instead of the asset icon.
+  function catalogPreviewPaths(asset,familyHint) {
+    if (!asset || typeof asset.Name!=='string' || !asset.Group?.Name) return [];
+    const familyField=asset.Group.Family;
+    const family=typeof familyField==='string'?familyField
+      :typeof familyField?.Name==='string'?familyField.Name
+      :typeof familyHint==='string'&&familyHint?familyHint:'Female3DCG';
+    const files=[];
+    const add=url=>{
+      if(typeof url!=='string'||!url.trim())return;
+      const value=url.trim();
+      if(!/\.(?:png|jpe?g|webp)(?:[?#]|$)/i.test(value))return;
+      try{
+        const resolved=new URL(value,document.baseURI).href;
+        if(!files.includes(resolved))files.push(resolved);
+      }catch(_){}
+    };
+    // Exact BC native preview convention: Assets/<family>/<group>/Preview/<item>.png
+    const assetPath=`Assets/${encodeURIComponent(family)}/${encodeURIComponent(asset.Group.Name)}/Preview/${encodeURIComponent(asset.Name)}.png`;
+    add(assetPath);
+    // Some registered addon assets provide a custom, standalone inventory icon.
+    for(const key of ['PreviewImage','DynamicPreviewImage','PreviewPath']) add(asset[key]);
+    // Some BC builds expose the native image path through a helper function.
+    for(const name of ['AssetGetPreviewPath','InventoryGetItemPath','AssetGetInventoryPath']) {
+      try {
+        const fn=globalThis[name];
+        if(typeof fn==='function')add(fn(asset));
+      }catch(_){}
+    }
+    return files.slice(0,4);
+  }
+
   function colorLayerDefinitions(asset,group,currentColor) {
     const raw=Array.isArray(asset?.Layer)?asset.Layer:[];
     const declared=Number(asset?.ColorableLayerCount);
@@ -788,7 +824,7 @@
     // Set before registerMod: even a partial startup must never register twice.
     app.registrationAttempted=true;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.1'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.4'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -1105,6 +1141,19 @@
   function setStatus(text) {app.status=text;const el=document.getElementById('pwr-status');if(el)el.textContent=text;}
   const displayName = value => String(value||'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ');
   const isClothes = g => g.Category === 'Appearance' && !!g.Clothing;
+  // Do not treat cosmetic appearance groups as disposable clothing just
+  // because BC or another addon marks them Clothing=true.
+  // Match either BC's group ID or its description (for addon-defined groups).
+  const isProtectedCosmetic = g => {
+    const name=String(g?.Name||'');
+    const desc=String(g?.Description||'');
+    // Prefixes and CamelCase suffixes prevent false matches such as
+    // Outerwear / Underwear (both contain the letters 'ear').
+    return /^(?:Hair|Eyes?|EyeBrow|Brow|Lash|Pupil|Iris|Mouth|Lip|Nose|Face|Makeup|MakeUp|FacePaint|BodyPaint|BodyMark|Marking|Tattoo|Freckle|Ears?|Tails?|Wings?|Horns?|Body|Skin|Breast|ChestShape|Piercing|Nail|Scar|Blush|Mascara|Eyeshadow)/i.test(name)
+      || /(?:Ears?|Tails?|Wings?|Horns?|Hair|FacePaint|Makeup|MakeUp|BodyMarking|Tattoo|Piercing)$/.test(name)
+      || /^(?:face|ears?|tails?|wings?|horns?|hair|make.?up|body.?mark|skin|blush|eyeshadow|tattoo)/i.test(desc);
+  };
+  const isClearableClothing = g => !!(g && isClothes(g) && g.AllowNone && !isProtectedCosmetic(g));
   const groupClass = g => g.Category === 'Item' ? 'Gear' : g.Clothing ? 'Clothing' : /hair|eye|body|skin|mouth|nose|face|brow|breast|pupil|iris/i.test(g.Name) ? 'Body' : 'Accessories';
   const backgrounds={
     violet:'linear-gradient(145deg,#45325f 0%,#77558e 55%,#1a1728 100%)',
@@ -1709,48 +1758,20 @@
         append(tile,node('div',asset?.Name||'Remove','pwr-tile-sub'));
         grid.appendChild(tile);
         if(!asset){append(art,node('div','✕','pwr-tile-placeholder'));continue;}
-        // Prefer BC-provided inventory artwork. Only fall back to one idle
-        // character render per visible item when BC exposes no preview image.
-        const a=asset;let path='';
-        for(const name of ['InventoryGetItemPath','AssetGetInventoryPath']) {
-          try {
-            const fn=globalThis[name];
-            if(typeof fn!=='function')continue;
-            const found=fn(a);
-            if(typeof found==='string'&&/\.(?:png|jpe?g|webp)(?:\?|$)/i.test(found)) {path=found;break;}
-          }catch(_){ }
-        }
-        if(!path && typeof a.PreviewImage==='string' && /\.(?:png|jpe?g|webp)/i.test(a.PreviewImage))path=a.PreviewImage;
-        const image=node('img');image.alt=title;image.loading='lazy';art.appendChild(image);
-        const cacheKey=`${member(c)}:${currentGroup.Name}:${a.Name}:${st.fit}`;
-        const applyCached=()=>{if(app.nativeThumbCache.has(cacheKey))image.src=app.nativeThumbCache.get(cacheKey);};
-        const fallback=()=>{
-          if(thumbToken!==app.nativeThumbToken||!image.isConnected)return;
-          if(app.nativeThumbCache.has(cacheKey)){applyCached();return;}
-          const look=cloneJson(st.look).filter(r=>r.group!==currentGroup.Name);
-          look.push({group:currentGroup.Name,asset:a.Name,color:'Default'});
-          const cache=new WeakMap();
-          const render=()=>{
-            if(thumbToken!==app.nativeThumbToken||!image.isConnected)return;
-            const replica=getRenderClone(c,look,cache,render,st.fit,st.braChest);
-            if(!replica?.Canvas)return;
-            try{
-              const source=replica.Canvas;
-              const small=document.createElement('canvas');small.width=160;small.height=105;
-              const ctx=small.getContext('2d');if(!ctx)return;
-              const bounds=thumbnailFocusBounds(source,null,currentGroup,160/105);
-              const size=Math.min(160/bounds.width,105/bounds.height);
-              const w=bounds.width*size,h=bounds.height*size;
-              ctx.drawImage(source,bounds.x,bounds.y,bounds.width,bounds.height,(160-w)/2,(105-h)/2,w,h);
-              const data=small.toDataURL('image/png');
-              if(app.nativeThumbCache.size>=42)app.nativeThumbCache.delete(app.nativeThumbCache.keys().next().value);
-              app.nativeThumbCache.set(cacheKey,data);image.src=data;
-            }catch(_){image.remove();append(art,node('div','✧','pwr-tile-placeholder'));}
-          };
-          setTimeout(render,250+idx*280); // one small preview task at a time, never on resize
+        // Use BC-style preview art only so the gallery matches the native
+        // wardrobe more closely. If BC exposes no preview image, show a simple
+        // placeholder rather than a custom rendered character crop.
+        const paths=catalogPreviewPaths(asset,c.AssetFamily||'Female3DCG');
+        if(!paths.length){append(art,node('div','✧','pwr-tile-placeholder'));continue;}
+        const image=node('img');image.alt=title;image.loading='lazy';image.decoding='async';art.appendChild(image);
+        let candidate=0;
+        image.onerror=()=>{
+          if(!image.isConnected)return;
+          candidate++;
+          if(candidate<paths.length)image.src=paths[candidate];
+          else {image.remove();append(art,node('div','✧','pwr-tile-placeholder'));}
         };
-        if(path){image.onerror=fallback;image.src=path;}
-        else fallback();
+        image.src=paths[0];
       }
       addPager(items.length,per);
     } else if(app.nativeMode==='colors'){
@@ -1846,8 +1867,8 @@
     }
     const bottom=node('div',undefined,'pwr-bottom');shell.appendChild(bottom);
     const leftActions=node('div',undefined,'pwr-actions');bottom.appendChild(leftActions);
-    append(leftActions,button('Remove clothing',()=>modifyStudio((look,char)=>{
-      const removable=new Set(assetGroups(char).filter(g=>isClothes(g)&&g.AllowNone).map(g=>g.Name));
+    append(leftActions,button('Clear clothing only',()=>modifyStudio((look,char)=>{
+      const removable=new Set(assetGroups(char).filter(isClearableClothing).map(g=>g.Name));
       for(let i=look.length-1;i>=0;i--)if(removable.has(look[i].group))look.splice(i,1);
     })),button('Copy public',()=>modifyStudio((look,char)=>look.splice(0,look.length,...snapshot(char)))));
     const rightActions=node('div',undefined,'pwr-actions');bottom.appendChild(rightActions);
