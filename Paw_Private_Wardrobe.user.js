@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.3.8-beta
+// @version      0.3.9-beta
 // @description  Private outfits with pose selection, unrestricted catalog and native-style editing.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.3.8
+ * Paw Private Wardrobe, beta 0.3.9
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,13 +27,17 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.3.8-beta';
+  const VERSION = '0.3.9-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
   const MAX_PACKET_BYTES = 120000;
   const CHUNK_SIZE = 480;
   const RETRY_MS = 60000;
+  const SEND_GAP_MS = 1000; // conservative Paw-only pacing; BC's own limits still apply
+  const MAX_QUEUED_PARTS = 256;
+  const PACKET_IDLE_MS = 30000;
+  const PACKET_MAX_AGE_MS = 300000;
   const MAX_SAVED_OUTFITS = 30;
   const SAFE_COLOR = /^(?:#[\da-fA-F]{3,8}|[\w ,.#()-]{1,80})$/;
   const style = `
@@ -131,6 +135,7 @@
     ready: false, mod: null, enabled: true, allowPartnerEdits: true, freezePrivateAnimations: true,
     selected: 0, panel: null, launcher: null, status: 'Starting...',
     profiles: {}, outfits: {}, launcherPosition: null, favorites: {}, favoritesOnly: false, sections: {slots:true,styles:true,tuning:false,use:false,colors:false,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, studioLayout: 'bc', previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, thumbnailFocus: 'item', lastSent: new Map(), peers: new Map(),
+    netQueue: [], netTimer: null, netLastSend: -Infinity, netRoom: null, netSession: Math.random().toString(36).slice(2), netReplays: new Map(), netStats: {partsSent:0, cancelled:0, duplicateStates:0, replaySuppressed:0, peakParts:0},
     packets: new Map(), clones: new WeakMap(), lastCompleteRoomFrames: new WeakMap(), pendingRoomFrames: new WeakMap(), generation: 1, privateCloneBuilds: 0, privateCloneCacheHits: 0, frozenBaseRefreshes: 0, pendingFrameReuses: 0, atomicFrameSwaps: 0,
     drawScope: 0, nativeDrawScope: 0, roomDrawHookAvailable: false, roomDrawHookSeen: false, roomDrawCalls: 0, privateDrawCalls: 0, nativeDrawSkips: 0, canvasHookCalls: 0, privateCanvasCalls: 0, canvasHookNames: [], nativeHookNames: [], renderReadyChecks: 0,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
@@ -804,9 +809,52 @@
     try { if (typeof AnimationRequestDraw === 'function') { AnimationRequestDraw(); return; } } catch (_) {}
     try { if (typeof ChatRoomCharacterViewUpdate === 'function') ChatRoomCharacterViewUpdate(); } catch (_) {}
   }
+  function networkRoom() {
+    if(!inRoom())return null;
+    if(typeof ServerSocket !== 'undefined' && ServerSocket?.connected===false)return null;
+    const name=typeof ChatRoomData!=='undefined'?ChatRoomData?.Name:'';
+    const space=typeof ChatRoomSpace!=='undefined'?ChatRoomSpace:'';
+    return JSON.stringify([member(me()),name||'',space||'']);
+  }
+  function cancelNetwork(reason) {
+    if(app.netTimer!==null){clearTimeout(app.netTimer);app.netTimer=null;}
+    app.netStats.cancelled+=app.netQueue.length;
+    app.netQueue=[];app.packets.clear();app.netReplays.clear();app.lastSent.clear();app.peers.clear();
+    if(reason)app.diagnostics.sync.lastProblem=reason;
+  }
+  function checkNetworkRoom() {
+    const room=networkRoom();
+    if(room!==app.netRoom){cancelNetwork('');app.netRoom=room;app.netSession=Math.random().toString(36).slice(2);}
+    return room;
+  }
+  function queuedParts(){return app.netQueue.reduce((n,j)=>n+j.total-j.index,0);}
+  function scheduleNetwork() {
+    if(app.netTimer!==null||!app.netQueue.length)return;
+    const delay=Math.max(0,SEND_GAP_MS-(Date.now()-app.netLastSend));
+    app.netTimer=setTimeout(()=>{app.netTimer=null;pumpNetwork();},delay);
+  }
+  function pumpNetwork() {
+    const room=checkNetworkRoom();if(!room)return;
+    while(app.netQueue.length) {
+      const job=app.netQueue[0],peer=app.peers.get(job.target);
+      const blocked=job.type==='STATE' && (!peer?.enabled || (job.subject===job.target && !peer.accept));
+      if(job.room!==room || !eligible(job.target) || blocked || (!app.enabled && job.type!=='DISABLED' && job.type!=='STATE_ACK' && job.type!=='HELLO') || Date.now()-job.created>PACKET_MAX_AGE_MS){
+        app.netQueue.shift();app.netStats.cancelled++;continue;
+      }
+      if(Date.now()-app.netLastSend<SEND_GAP_MS){scheduleNetwork();return;}
+      try {
+        app.netLastSend=Date.now();
+        ServerSend('ChatRoomChat',{Type:'Hidden',Target:job.target,Content:`${MARKER}${job.tx}:${job.index+1}/${job.total}:${job.packed.slice(job.index*CHUNK_SIZE,(job.index+1)*CHUNK_SIZE)}`});
+        app.netStats.partsSent++;job.index++;
+        if(job.index>=job.total)app.netQueue.shift();
+      }catch(err){app.netQueue.shift();app.netStats.cancelled++;app.diagnostics.sync.lastProblem='Private message send failed: '+String(err);}
+      scheduleNetwork();return;
+    }
+  }
   const syncSend = (target, payload) => {
     const sync=app.diagnostics.sync;
-    if (!eligible(target) || typeof ServerSend !== 'function') {
+    const room=checkNetworkRoom();
+    if (!room || !eligible(target) || typeof ServerSend !== 'function') {
       sync.lastProblem='Partner is not in the room or ServerSend is unavailable.'; return false;
     }
     const raw = JSON.stringify({v:1,from:member(me()),to:target,...payload});
@@ -821,13 +869,22 @@
       sync.lastProblem=`The appearance requires ${total} message parts; maximum is 128.`; return false;
     }
     const tx = `${Date.now().toString(36)}${Math.random().toString(36).slice(2,8)}`;
-    try {
-      for (let i=0;i<total;i++) {
-        // These are targeted Hidden room messages; they do not update BC appearance.
-        ServerSend('ChatRoomChat', {Type:'Hidden', Target:target, Content:`${MARKER}${tx}:${i+1}/${total}:${packed.slice(i*CHUNK_SIZE,(i+1)*CHUNK_SIZE)}`});
-      }
-    } catch(err) {sync.lastProblem='Could not send message: '+String(err);return false;}
-    return true; // Queued for BC; not proof the partner has received it.
+    const type=payload.type,subject=payload.subject;
+    // Supersede unsent or partially sent older revisions, never send an obsolete outfit.
+    if(type==='STATE'||type==='RESET'||type==='HELLO'||type==='DISABLED'){
+      app.netQueue=app.netQueue.filter(j=>{
+        if(j.target!==target)return true;
+        const same=(type==='STATE'||type==='RESET')?((j.type==='STATE'||j.type==='RESET')&&j.subject===subject):type==='DISABLED'?j.type!=='STATE_ACK':j.type==='HELLO';
+        if(same)app.netStats.cancelled++;
+        return !same;
+      });
+    }
+    if(queuedParts()+total>MAX_QUEUED_PARTS){sync.lastProblem='Private send queue is full; saved locally. Use Resync saved looks later.';return false;}
+    const job={room,target,type,subject,tx,packed,total,index:0,created:Date.now()};
+    app.netQueue.push(job);
+    app.netStats.peakParts=Math.max(app.netStats.peakParts,queuedParts());
+    scheduleNetwork();
+    return true; // accepted into the bounded queue, not proof of delivery
   };
   function sendState(partner, subject, look, changed=Date.now(), fit='auto', braChest='auto', pose='original') {
     if (!eligible(partner)) return false;
@@ -839,45 +896,58 @@
     if (!validated) return false;
     if (subject !== member(me()) && subject !== partner) return false;
     const sent=syncSend(partner, {type:'STATE',subject,look:validated,fit:normalizeFit(fit),braChest:normalizeBraChest(c,braChest),pose:normalizePrivatePose(pose),ts:changed});
-    if (sent) {app.diagnostics.sync.stateSent++;app.diagnostics.sync.lastSend={subject,to:partner,ts:changed,at:Date.now(),items:validated.length};}
+    if (sent) {app.netReplays.set(key(partner,subject),Number(changed||0)+':0');app.diagnostics.sync.stateSent++;app.diagnostics.sync.lastSend={subject,to:partner,ts:changed,at:Date.now(),items:validated.length};}
     return sent;
   }
   function sendReset(partner,subject,changed) {
-    return syncSend(partner,{type:'RESET',subject,ts:changed});
+    const sent=syncSend(partner,{type:'RESET',subject,ts:changed});
+    if(sent)app.netReplays.set(key(partner,subject),Number(changed||0)+':1');return sent;
   }
-  function sendSavedLooks(id) {
+  function knownRevisions(id){
+    return [member(me()),id].flatMap(subject=>{
+      const entry=app.profiles[key(id,subject)];
+      return entry?[[subject,Number(entry.changed)||0,entry.removed?1:0]]:[];
+    });
+  }
+  function sendSavedLooks(id, revisions=null, force=false) {
     if (!app.enabled || !eligible(id)) return;
     for (const subject of [member(me()), id]) {
       const saved = app.profiles[key(id,subject)];
       if (!saved) continue;
-      if (saved.removed) sendReset(id,subject,saved.changed||0);
-      else if (Array.isArray(saved.look)) sendState(id,subject,saved.look,saved.changed||0,saved.fit,saved.braChest,saved.pose);
+      const stamp=Number(saved.changed)||0;
+      const remote=Array.isArray(revisions)?revisions.find(r=>Array.isArray(r)&&r[0]===subject):null;
+      const replayKey=key(id,subject), signature=stamp+':'+(saved.removed?1:0);
+      if(!force && ((remote && Number(remote[1])>=stamp)||app.netReplays.get(replayKey)===signature)){
+        app.netStats.replaySuppressed++;continue;
+      }
+      const sent=saved.removed?sendReset(id,subject,stamp):Array.isArray(saved.look)&&sendState(id,subject,saved.look,stamp,saved.fit,saved.braChest,saved.pose);
+      if(sent)app.netReplays.set(replayKey,signature);
     }
   }
   function sendHello(id, force=false) {
-    const last = app.lastSent.get(id) || 0;
+    if(!checkNetworkRoom())return;
+    const last = app.lastSent.get(id) ?? -Infinity;
     if (!force && Date.now() - last < RETRY_MS) return;
-    app.lastSent.set(id, Date.now());
-    syncSend(id,{type:'HELLO',enabled:app.enabled,accept:app.allowPartnerEdits,script:VERSION});
+    if(syncSend(id,{type:'HELLO',enabled:app.enabled,accept:app.allowPartnerEdits,script:VERSION,session:app.netSession,revisions:knownRevisions(id)}))app.lastSent.set(id,Date.now());
   }
   function parseChunk(data) {
     if (!data || typeof data.Content !== 'string' || !data.Content.startsWith(MARKER)) return false;
     const match = /^PWRD1:([\da-z]+):(\d+)\/(\d+):([\w+/=]+)$/i.exec(data.Content);
     if (!match) return true;
     const sender = Number(data.Sender || data.MemberNumber);
-    if (!Number.isInteger(sender) || !eligible(sender)) return true;
+    if (!checkNetworkRoom() || !Number.isInteger(sender) || !eligible(sender)) return true;
     const i=Number(match[2]), n=Number(match[3]);
     if (n<1 || n>128 || i<1 || i>n || match[4].length > CHUNK_SIZE) return true;
     // Never trust the sender field included in a message body; use the game packet Sender.
     const packetKey = `${sender}:${match[1]}`;
-    for (const [k,p] of app.packets) if (Date.now()-p.when > 30000) app.packets.delete(k);
+    for (const [k,p] of app.packets) if (Date.now()-p.last > PACKET_IDLE_MS || Date.now()-p.when > PACKET_MAX_AGE_MS) app.packets.delete(k);
     let p=app.packets.get(packetKey);
     if (!p) {
       if (app.packets.size > 24) app.packets.delete(app.packets.keys().next().value);
-      p={n,when:Date.now(),parts:new Array(n)};app.packets.set(packetKey,p);
+      p={n,when:Date.now(),last:Date.now(),parts:new Array(n)};app.packets.set(packetKey,p);
     }
     if (p.n!==n) {app.packets.delete(packetKey);return true;}
-    p.parts[i-1]=match[4];
+    p.last=Date.now();p.parts[i-1]=match[4];
     if (p.parts.filter(Boolean).length === n) {
       app.packets.delete(packetKey);
       try {
@@ -892,12 +962,16 @@
   function handleMessage(sender,payload) {
     if (!payload || payload.v!==1 || payload.from!==sender || payload.to!==member(me()) || !eligible(sender)) return;
     if (payload.type==='HELLO') {
-      const wasKnown = app.peers.has(sender);
-      app.peers.set(sender,{at:Date.now(),enabled:payload.enabled!==false,accept:payload.accept!==false,version:typeof payload.script==='string'?payload.script:'older beta'});
+      const prior=app.peers.get(sender);
+      const session=typeof payload.session==='string'?payload.session.slice(0,64):null;
+      const changedSession=!prior || prior.session!==session || (!prior.enabled && payload.enabled!==false);
+      const changedPermissions=!!prior && !prior.accept && payload.accept!==false;
+      if(changedSession||changedPermissions)for(const subject of [member(me()),sender])app.netReplays.delete(key(sender,subject));
+      app.peers.set(sender,{at:Date.now(),enabled:payload.enabled!==false,accept:payload.accept!==false,session,version:typeof payload.script==='string'?payload.script:'older beta'});
       // Respond only to an unknown peer, avoiding HELLO loops.
       if (app.enabled) {
-        sendHello(sender,!wasKnown);
-        if (payload.enabled !== false) sendSavedLooks(sender);
+        sendHello(sender,changedSession);
+        if (payload.enabled !== false) sendSavedLooks(sender,payload.revisions);
       }
       if (app.panel && app.panel.style.display!=='none') renderPanel();
       return;
@@ -932,7 +1006,10 @@
     }
     // Do not let older profiles replayed during reconnect overwrite newer edits.
     const k=key(sender,subject),saved=app.profiles[k];
-    if (saved && Number(saved.changed||0)>stamp) {ack('up-to-date','A newer wardrobe is already saved.');return;}
+    if (saved && Number(saved.changed||0)>=stamp) {
+      app.netStats.duplicateStates++;
+      ack('up-to-date','This revision or a newer wardrobe is already saved.');return;
+    }
     if (payload.type==='RESET') {
       delete app.remote[k];
       app.profiles[k]={removed:true,changed:stamp};
@@ -970,7 +1047,7 @@
     // Set before registerMod: even a partial startup must never register twice.
     app.registrationAttempted=true;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.8'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.9'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -1520,22 +1597,22 @@
   }
   function clearPrivateLook() {
     const st=app.studio;if(!st)return;
-    const changed=Date.now(),pid=st.partner,subject=st.subject;
+    const pid=st.partner,subject=st.subject,changed=Math.max(Date.now(),Number(app.profiles[key(pid,subject)]?.changed||0)+1);
     app.profiles[key(pid,subject)]={removed:true,changed};delete app.remote[key(pid,subject)];
     saveSettings();refreshView();closeStudio();
     const sent=app.peers.get(pid)?.enabled && sendReset(pid,subject,changed);
-    setStatus(sent?'Reset sent to partner.':'Local private look reset; partner not connected.');
+    setStatus(sent?'Reset queued for partner.':'Local private look reset; partner not connected.');
   }
   function saveStudio() {
     const st=app.studio;if(!st)return;
     if(st.remoteChanged && !st.overwriteConfirmed){st.overwriteConfirmed=true;renderStudio();return;}
     if(st.subject===st.partner && app.peers.get(st.partner)?.accept===false){setStatus('Your partner disabled remote styling.');return;}
     const c=findChar(st.subject),look=validateLook(c,st.look);if(!look)return;
-    const pid=st.partner,subject=st.subject,changed=Date.now();
+    const pid=st.partner,subject=st.subject,changed=Math.max(Date.now(),Number(app.profiles[key(pid,subject)]?.changed||0)+1);
     app.profiles[key(pid,subject)]={look,fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),pose:normalizePrivatePose(st.pose),changed};delete app.remote[key(pid,subject)];
     saveSettings();refreshView();closeStudio();
     const sent=sendState(pid,subject,look,changed,st.fit,st.braChest,st.pose);
-    setStatus(sent?'Private look saved and sent; awaiting acknowledgment.':'Saved locally but partner delivery is unavailable.');
+    setStatus(sent?'Private look saved and queued for sharing; awaiting acknowledgment.':'Saved locally but partner delivery is unavailable.');
   }
   function savedOutfitsFor(st) {
     const k=key(st.partner,st.subject);
@@ -1595,7 +1672,7 @@
     const partner=currentPartner(),pid=member(partner),peer=app.peers.get(pid);
     append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version===VERSION?'Both on '+VERSION.replace('-beta','')+' · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
     checkbox(panel,'View private appearances (on my screen)',app.enabled,v=>{
-      app.enabled=v;saveSettings();refreshView();syncSend(pid,{type:v?'HELLO':'DISABLED',enabled:v,accept:app.allowPartnerEdits,script:VERSION});renderPanel();
+      app.enabled=v;saveSettings();refreshView();if(v)sendHello(pid,true);else syncSend(pid,{type:'DISABLED'});renderPanel();
     });
     checkbox(panel,'Freeze BC animation frames in my private view (faster)',app.freezePrivateAnimations,v=>{
       app.freezePrivateAnimations=v;saveSettings();refreshView();renderPanel();
@@ -1615,6 +1692,7 @@
     append(targets,button('Style myself',()=>beginStudio(member(me())),''),stylePartner);
     append(panel,targets);
     append(panel,node('p','The private wardrobe uses its own preview and background. Only Save & share updates the look your partner sees.','pwr-help'));
+    append(panel,button('Resync saved looks',()=>{sendHello(pid,true);sendSavedLooks(pid,null,true);setStatus('Resync requested. Large outfits are sent gradually.');},'pwr-secondary'));
     append(panel,button('Reset floating button position',()=>{app.launcherPosition=null;saveSettings();applyLauncherPosition();},'pwr-secondary'));
     append(panel,node('div',app.status,'pwr-help'));panel.lastElementChild.id='pwr-status';
     append(panel,node('p','Catalog items are visual-only; owning items or gender restrictions do not filter this studio. The private body-fit setting can use female flat-chest layers when supplied by BC. Missing sprites cannot be drawn. Private packets are not end-to-end encrypted. No public BC appearance or actual restraints are changed.','pwr-help'));
@@ -2242,6 +2320,8 @@
   }
   function heartbeat() {
     if(!app.ready)return;
+    checkNetworkRoom();
+    for(const id of app.peers.keys())if(!eligible(id)){app.peers.delete(id);app.lastSent.delete(id);for(const subject of [member(me()),id])app.netReplays.delete(key(id,subject));}
     // Do not deserialize the full wardrobe every heartbeat; it can undo draft UI state.
     const ps=partners();
     const chosen=currentPartner();
@@ -2271,6 +2351,7 @@
     // Window resize only changes CSS layout; fixed-size character pixels remain cached.
     globalThis.PawPrivateWardrobe = Object.freeze({
       version:VERSION,
+      networkStatus(){return {version:VERSION,connectedToRoom:!!networkRoom(),queuedParts:queuedParts(),queuedTransfers:app.netQueue.length,sendGapMs:SEND_GAP_MS,...app.netStats,sync:cloneJson(app.diagnostics.sync),lastRenderError:app.diagnostics.lastError};},
       assetPreviewStatus(group,assetName){
         const c=app.studio?findChar(app.studio.subject):me();
         const g=groupByName(c,String(group||app.nativeGroup||''));
