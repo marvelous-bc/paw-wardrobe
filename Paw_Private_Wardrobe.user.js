@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.3.4-beta
-// @description  Private visual-only wardrobe: catalog clothing, body styles and gear, without inventory or gender gates.
+// @version      0.3.8-beta
+// @description  Private outfits with pose selection, unrestricted catalog and native-style editing.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
 // @match        https://*.bondage-europe.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.3.4
+ * Paw Private Wardrobe, beta 0.3.8
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.3.4-beta';
+  const VERSION = '0.3.8-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -74,6 +74,8 @@
 #pwr-studio .pwr-drag-catcher{position:absolute;inset:0;z-index:5;touch-action:none;cursor:move}
 #pwr-studio .pwr-preview-tools{flex:none;display:flex;gap:8px;padding:7px 10px;align-items:center;border-top:1px solid #501273;font-size:12px;flex-wrap:wrap}
 #pwr-studio .pwr-preview-tools select{max-width:145px}
+#pwr-studio .pwr-preview-tools select[aria-label="Private character pose"]{max-width:180px;min-width:130px}
+@media(max-width:560px){#pwr-studio .pwr-preview-tools{display:flex!important;min-height:40px;padding:4px 7px;gap:6px}#pwr-studio .pwr-preview-tools > :not(.pwr-pose-label):not(.pwr-pose-select){display:none!important}#pwr-studio .pwr-pose-select{max-width:180px;min-width:100px}}
 #pwr-studio .pwr-right{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:#121018;border-left:2px solid #4d146a}
 #pwr-studio .pwr-filter{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding:8px 9px;background:#1e1427;border-bottom:1px solid #65118e;flex:none}
 #pwr-studio .pwr-filter button{min-width:44px}
@@ -92,9 +94,9 @@
 #pwr-studio .pwr-catalog-tile{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;padding:5px!important;overflow:hidden;min-height:158px;background:#262229!important}
 #pwr-studio .pwr-catalog-tile.pwr-selected{background:#2d5687!important}
 #pwr-studio .pwr-tile-art{height:111px;min-height:111px;display:grid;place-items:center;overflow:hidden;background:#28252e;position:relative}
-#pwr-studio .pwr-tile-art img{width:100%;height:100%;object-fit:contain;padding:4px}
+#pwr-studio .pwr-tile-art img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:100%;max-height:100%;object-fit:contain!important;padding:4px;display:block!important}
 #pwr-studio .pwr-tile-art canvas{width:100%;height:100%;display:block;object-fit:contain}
-#pwr-studio .pwr-tile-placeholder{font-size:25px;color:#9765b2;line-height:1;text-align:center}
+#pwr-studio .pwr-tile-placeholder{padding:6px;font-size:15px;color:#9765b2;line-height:1;text-align:center}
 #pwr-studio .pwr-tile-label{font-size:12px;line-height:1.15;text-align:center;word-break:break-word}
 #pwr-studio .pwr-tile-sub{font-size:10px;color:#c9b4d9;text-align:center;overflow-wrap:anywhere}
 #pwr-studio .pwr-pages{flex:none;display:flex;gap:8px;padding:7px;justify-content:center;align-items:center;background:#201425;border-top:1px solid #7d11a6}
@@ -108,6 +110,12 @@
 #pwr-studio .pwr-hue{width:100%;height:17px;background:linear-gradient(90deg,red,yellow,lime,cyan,blue,magenta,red);appearance:none;padding:0!important;border:0!important}
 #pwr-studio .pwr-hue::-webkit-slider-thumb{appearance:none;width:13px;height:22px;background:#fff;border:2px solid #555}
 #pwr-studio .pwr-note{padding:6px;font-size:11px;color:#c5b1d0;line-height:1.3}
+#pwr-studio .pwr-layering{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid #7300aa;background:#19131f}
+#pwr-studio .pwr-layer-row{display:grid;grid-template-columns:minmax(85px,1fr) auto minmax(45px,65px) auto auto;gap:5px;align-items:center;border-top:1px solid #533464;padding:7px 0}
+#pwr-studio .pwr-layer-row input{width:100%;min-width:0;padding:5px}
+#pwr-studio .pwr-layer-row button{min-height:32px;padding:5px;font-size:12px}
+#pwr-studio .pwr-layer-row .pwr-note{padding:2px 0;overflow-wrap:anywhere}
+@media(max-width:560px){#pwr-studio .pwr-layer-row{grid-template-columns:auto 1fr auto auto}#pwr-studio .pwr-layer-row>div{grid-column:1/-1}}
 #pwr-studio .pwr-bottom{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 11px;border-top:2px solid #580077;background:#1d1423;flex-wrap:wrap}
 #pwr-studio .pwr-bottom button{font-size:12px;min-height:33px}
 #pwr-studio .pwr-pill{font-size:11px;background:#3c194e;padding:6px;color:#e2c1ef}
@@ -123,7 +131,7 @@
     ready: false, mod: null, enabled: true, allowPartnerEdits: true, freezePrivateAnimations: true,
     selected: 0, panel: null, launcher: null, status: 'Starting...',
     profiles: {}, outfits: {}, launcherPosition: null, favorites: {}, favoritesOnly: false, sections: {slots:true,styles:true,tuning:false,use:false,colors:false,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, studioLayout: 'bc', previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, thumbnailFocus: 'item', lastSent: new Map(), peers: new Map(),
-    packets: new Map(), clones: new WeakMap(), generation: 1, privateCloneBuilds: 0, privateCloneCacheHits: 0, frozenBaseRefreshes: 0,
+    packets: new Map(), clones: new WeakMap(), lastCompleteRoomFrames: new WeakMap(), pendingRoomFrames: new WeakMap(), generation: 1, privateCloneBuilds: 0, privateCloneCacheHits: 0, frozenBaseRefreshes: 0, pendingFrameReuses: 0, atomicFrameSwaps: 0,
     drawScope: 0, nativeDrawScope: 0, roomDrawHookAvailable: false, roomDrawHookSeen: false, roomDrawCalls: 0, privateDrawCalls: 0, nativeDrawSkips: 0, canvasHookCalls: 0, privateCanvasCalls: 0, canvasHookNames: [], nativeHookNames: [], renderReadyChecks: 0,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
     diagnostics: {dropped:[], lastEditSkipped:[], render:'not yet attempted', lastError:'', sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}},
@@ -138,6 +146,40 @@
   // A private outfit can use the female clothing silhouettes without changing
   // the user's real gender, body parts or server appearance.
   const normalizeFit = value => value === 'flat' || value === 'original' ? value : 'auto';
+  // Private pose presets. These are the BC asset pose names; they are
+  // assigned only to detached render clones, never the public character.
+  const POSE_OPTIONS = [
+    ['original','Original (follow BC)'],
+    ['stand','Standing'],
+    ['kneel','Kneeling'],
+    ['kneelingSpread','Kneeling Spread'],
+    ['legsClosed','Legs Closed'],
+    ['spread','Legs Spread'],
+    ['allFours','All Fours'],
+    ['hogtied','Hogtied'],
+  ];
+  const BC_LOWER_POSES = Object.freeze({
+    kneel:'Kneel', kneelingSpread:'KneelingSpread', legsClosed:'LegsClosed',
+    spread:'Spread', allFours:'AllFours', hogtied:'Hogtied',
+  });
+  const BC_LOWER_POSE_SET = new Set([...Object.values(BC_LOWER_POSES),'Stand']);
+  const normalizePrivatePose = value => POSE_OPTIONS.some(([id])=>id===value) ? value : 'original';
+  function applyPrivatePose(replica, source, requested) {
+    const mode=normalizePrivatePose(requested);
+    if(mode==='original')return;
+    const target=BC_LOWER_POSES[mode]||null; // stand is the default standing art
+    // Preserve other pose categories (e.g. arms), but replace lower-body
+    // categories so Kneel and Standing don't fight each other.
+    const upper = values => Array.isArray(values) ? values.filter(value=>
+      typeof value==='string' && !BC_LOWER_POSE_SET.has(value)) : [];
+    const previousActive=upper(source?.ActivePose);
+    const previousPose=upper(source?.Pose);
+    replica.ActivePose=target?[...previousActive,target]:previousActive;
+    replica.Pose=target?[...previousPose,target]:previousPose;
+    // This changes only private artwork, never CharacterSetActivePose,
+    // the real player or BC's network pose updates.
+  }
+
   // Some BC clients represent gender differently (or omit it from room
   // snapshots). Automatic fit must therefore also inspect the ACTUAL body
   // silhouette, not just a single account flag. The appearance argument can
@@ -182,6 +224,14 @@
     const selected=(member(character)===member(me())&&!app.allowPartnerEdits)
       ?app.profiles[k]:(app.remote[k]?.look?app.remote[k]:app.profiles[k]);
     return normalizeBraChest(character,selected?.braChest);
+  }
+  function privatePose(character) {
+    const partner=currentPartner();
+    if(!partner||!character)return 'original';
+    const k=key(member(partner),member(character));
+    const selected=(member(character)===member(me())&&!app.allowPartnerEdits)
+      ?app.profiles[k]:(app.remote[k]?.look?app.remote[k]:app.profiles[k]);
+    return normalizePrivatePose(selected?.pose);
   }
   const isOwnerOf = (owner, sub) => {
     if (!owner || !sub || owner === sub) return false;
@@ -240,35 +290,79 @@
   // those icons for EVERY group (clothing, hair, body, accessories and gear).
   // Avoid drawing a character into item tiles: that is slower and can display
   // the wearer's body/feet instead of the asset icon.
+  // Native thumbnails may be shared across groups or renamed by an addon.
+  // Keep actual asset identity separate from the preview URL.
   function catalogPreviewPaths(asset,familyHint) {
     if (!asset || typeof asset.Name!=='string' || !asset.Group?.Name) return [];
-    const familyField=asset.Group.Family;
-    const family=typeof familyField==='string'?familyField
-      :typeof familyField?.Name==='string'?familyField.Name
-      :typeof familyHint==='string'&&familyHint?familyHint:'Female3DCG';
+    const g=asset.Group;
+    const family=typeof g.Family==='string' ? g.Family : g.Family?.Name || familyHint || 'Female3DCG';
     const files=[];
-    const add=url=>{
-      if(typeof url!=='string'||!url.trim())return;
-      const value=url.trim();
-      if(!/\.(?:png|jpe?g|webp)(?:[?#]|$)/i.test(value))return;
+    const add=raw=>{
+      if(typeof raw!=='string'||!raw.trim())return;
       try{
-        const resolved=new URL(value,document.baseURI).href;
-        if(!files.includes(resolved))files.push(resolved);
+        const url=new URL(raw.trim(),document.baseURI);
+        if(!['http:','https:','blob:','data:'].includes(url.protocol))return;
+        if(url.protocol==='data:'&&!/^data:image\/(?:png|jpeg|webp);/i.test(raw))return;
+        if(!files.includes(url.href))files.push(url.href);
       }catch(_){}
     };
-    // Exact BC native preview convention: Assets/<family>/<group>/Preview/<item>.png
-    const assetPath=`Assets/${encodeURIComponent(family)}/${encodeURIComponent(asset.Group.Name)}/Preview/${encodeURIComponent(asset.Name)}.png`;
-    add(assetPath);
-    // Some registered addon assets provide a custom, standalone inventory icon.
-    for(const key of ['PreviewImage','DynamicPreviewImage','PreviewPath']) add(asset[key]);
-    // Some BC builds expose the native image path through a helper function.
-    for(const name of ['AssetGetPreviewPath','InventoryGetItemPath','AssetGetInventoryPath']) {
-      try {
-        const fn=globalThis[name];
-        if(typeof fn==='function')add(fn(asset));
-      }catch(_){}
+    const label=(v)=>typeof v==='string'&&v.trim()&&v.length<=180&&!/[\\/]/.test(v)?v.trim():null;
+    const direct=(v)=>typeof v==='string'&&(/\.(?:png|jpe?g|webp)(?:[?#]|$)/i.test(v)||/^data:image\//i.test(v)||/^blob:/i.test(v));
+    const imagePath=(group,name)=>{
+      if(!label(group)||!label(name))return;
+      add(`Assets/${encodeURIComponent(family)}/${encodeURIComponent(group)}/Preview/${encodeURIComponent(name)}.png`);
+    };
+    // Explicit icon overrides take precedence. Native metadata may use a bare filename.
+    const aliases=[];
+    for(const key of ['PreviewImage','DynamicPreviewImage','PreviewPath','PreviewName','Preview']) {
+      const v=asset[key];
+      if(direct(v)) {
+        if(!/[\\/]/.test(v)&&!/^data:|^blob:/i.test(v))aliases.push(v.replace(/\.png$/i,''));
+        else add(v);
+      } else if(label(v))aliases.push(v);
     }
-    return files.slice(0,4);
+    for(const name of ['AssetGetPreviewPath','InventoryGetItemPath','AssetGetInventoryPath']) {
+      try {const fn=globalThis[name];if(typeof fn==='function'){const v=fn(asset);if(direct(v))add(v);}}catch(_){}
+    }
+    const dynamicGroup=label(asset.DynamicGroupName)||label(g.DynamicGroupName);
+    const dynamicName=label(asset.DynamicAssetName)||label(asset.DynamicName);
+    const groups=[...new Set([dynamicGroup,g.Name].filter(Boolean))];
+    const names=[...new Set([...aliases,dynamicName,asset.Name].filter(Boolean))];
+    for(const group of groups)for(const name of names)imagePath(group,name);
+    // Catalog entries with the identical internal name can share an icon.
+    // Do not guess by translated display label, which can match unrelated items.
+    if(typeof Asset!=='undefined'&&Array.isArray(Asset)){
+      for(const other of Asset){
+        if(other===asset||other?.Name!==asset.Name||!other.Group?.Name)continue;
+        const f=other.Group.Family;
+        if(f && (typeof f==='string'?f:f.Name)!==family)continue;
+        imagePath(label(other.DynamicGroupName)||other.Group.Name, label(other.DynamicAssetName)||other.Name);
+        if(files.length>=10)break;
+      }
+    }
+    return files.slice(0,10);
+  }
+  const previewURLCache=new Map();
+  const previewFailures=new Map();
+  function mountCatalogImage(art,asset,family,title) {
+    const paths=catalogPreviewPaths(asset,family);
+    const key=JSON.stringify(paths);
+    const cached=previewURLCache.get(key);
+    if(cached){const index=paths.indexOf(cached);if(index>=0)paths.splice(index,1);paths.unshift(cached);}
+    const image=node('img');image.alt=title;image.loading='eager';image.decoding='async';
+    art.appendChild(image);
+    let index=0;
+    const failed=()=>{
+      image.remove();
+      const note=node('div','Preview unavailable','pwr-tile-placeholder');
+      note.title='No standalone artwork could be loaded. Item selection is independent of this image.';
+      append(art,note);
+      previewFailures.set(asset.Group.Name+'/'+asset.Name,{paths:paths.slice(),at:Date.now()});
+      if(previewFailures.size>80)previewFailures.delete(previewFailures.keys().next().value);
+    };
+    image.onload=()=>{if(!image.isConnected)return;previewURLCache.set(key,paths[index]);if(previewURLCache.size>400)previewURLCache.delete(previewURLCache.keys().next().value);previewFailures.delete(asset.Group.Name+'/'+asset.Name);};
+    image.onerror=()=>{if(!image.isConnected)return;if(++index<paths.length)image.src=paths[index];else failed();};
+    if(paths.length)image.src=paths[0];else failed();
   }
 
   function colorLayerDefinitions(asset,group,currentColor) {
@@ -360,7 +454,7 @@
     return {...item,Property:property};
   }
   const DEFAULT_TUNE=Object.freeze({opacity:100,x:0,y:0,angle:0,scaleX:100,scaleY:100,mirrorX:false,mirrorY:false,priority:0});
-  const tuneLimits={opacity:[0,100],x:[-180,180],y:[-250,250],angle:[-180,180],scaleX:[40,180],scaleY:[40,180],priority:[-5,5]};
+  const tuneLimits={opacity:[0,100],x:[-180,180],y:[-250,250],angle:[-180,180],scaleX:[40,180],scaleY:[40,180],priority:[-100,100]};
   const clamp=(n,low,high)=>Math.max(low,Math.min(high,n));
   function normalizeTune(raw) {
     if(!raw || typeof raw!=='object' || Array.isArray(raw))return null;
@@ -372,13 +466,60 @@
     }
     tune.mirrorX=raw.mirrorX===true;
     tune.mirrorY=raw.mirrorY===true;
-    return Object.keys(DEFAULT_TUNE).some(k=>tune[k]!==DEFAULT_TUNE[k])?tune:null;
+    const offsets={};
+    if(raw.layerOffsets && typeof raw.layerOffsets==='object' && !Array.isArray(raw.layerOffsets)) {
+      for(const [name,value] of Object.entries(raw.layerOffsets).slice(0,64)) {
+        if(name.length>100 || ['__proto__','constructor','prototype'].includes(name) || typeof value!=='number' || !Number.isFinite(value))continue;
+        const n=Math.round(clamp(value,-100,100));if(n)offsets[name]=n;
+      }
+    }
+    if(Object.keys(offsets).length)tune.layerOffsets=offsets;
+    return Object.keys(DEFAULT_TUNE).some(k=>tune[k]!==DEFAULT_TUNE[k]) || tune.layerOffsets ? tune : null;
   }
   function adjustableRecord(c,record) {
     if(!record || record.asset===HIDE_ITEM)return false;
     const g=groupByName(c,record.group);
     // Essential body groups are not safe for isolated per-item compositing.
     return !!(g && g.Category==='Appearance' && g.AllowNone);
+  }
+  // The native engine accepts Property.OverridePriority as a numeric priority
+  // or a map from layer names to absolute priorities (BC MR !3987).
+  function hasGeometryTune(raw) {
+    const t=normalizeTune(raw);
+    return !!t && Object.keys(DEFAULT_TUNE).some(k=>k!=='priority' && t[k]!==DEFAULT_TUNE[k]);
+  }
+  function nativeLayerDefinitions(asset) {
+    if(!asset)return [];
+    const list=Array.isArray(asset.Layer)&&asset.Layer.length?asset.Layer:[{}];
+    const unique=new Map();
+    for(const layer of list) {
+      const name=String(layer?.Name??'');
+      if(name.length>100 || ['__proto__','constructor','prototype'].includes(name)||unique.has(name))continue;
+      const base=[layer?.Priority,asset.Priority,asset.Group?.Priority].find(n=>typeof n==='number'&&Number.isFinite(n));
+      unique.set(name,{name,base:base??0});
+    }
+    return [...unique.values()];
+  }
+  function applyNativeLayerOrder(item,raw) {
+    const tune=normalizeTune(raw);
+    if(!tune || (!tune.priority&&!tune.layerOffsets))return item;
+    const definitions=nativeLayerDefinitions(item.Asset);
+    if(!definitions.length)return item;
+    const original=item.Property?.OverridePriority;
+    const number=v=>typeof v==='number'&&Number.isFinite(v);
+    const entries=definitions.map(({name,base})=>{
+      const inherited=number(original)?original:(original && typeof original==='object' && Object.hasOwn(original,name) && number(original[name]))?original[name]:base;
+      return [name, inherited+tune.priority+(tune.layerOffsets?.[name]||0)];
+    });
+    // Keep multi-layer garments internally ordered instead of flattening all
+    // their sprites to a single priority. Never mutate shared Asset or Property.
+    const override=entries.length===1 && entries[0][0]===''?entries[0][1]:Object.fromEntries(entries);
+    return {...item,Property:{...(item.Property||{}),OverridePriority:override}};
+  }
+  function normalizeAssetTune(raw,asset) {
+    const t=normalizeTune(raw);if(!t||!t.layerOffsets)return t;
+    const allowed=new Set(nativeLayerDefinitions(asset).map(d=>d.name));
+    return normalizeTune({...t,layerOffsets:Object.fromEntries(Object.entries(t.layerOffsets).filter(([name])=>allowed.has(name)))});
   }
   const withTune=(record,tune)=>tune?{...record,tune}:record;
   const snapshot = c => {
@@ -415,7 +556,7 @@
         continue;
       }
       const normalized={group:group.Name,asset:asset.Name,color:colorString(raw.color)};
-      const tune=adjustableRecord(c,normalized)?normalizeTune(raw.tune):null;
+      const tune=adjustableRecord(c,normalized)?normalizeAssetTune(raw.tune,asset):null;
       const use=normalizeItemUse(asset,raw.use);
       if(use)normalized.use=use;
       result.push(withTune(normalized,tune));
@@ -574,7 +715,7 @@
       if (record.asset === HIDE_ITEM) continue;
       const group=groupByName(c,record.group),asset=assetByName(c,group,record.asset);
       if (!asset)continue;
-      modified.push(appearanceItem(asset,record.color,oldByGroup.get(record.group),record.use));
+      modified.push(applyNativeLayerOrder(appearanceItem(asset,record.color,oldByGroup.get(record.group),record.use),record.tune));
     }
     return applyFeminineFlat(c,modified,fit,braChest);
   };
@@ -582,10 +723,10 @@
   function loadSettings() {
     const id = member(me()); if (!id || id === app.lastAccount) return;
     app.lastAccount = id;
-    app.profiles = {}; app.outfits = {}; app.favorites = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap();
+    app.profiles = {}; app.outfits = {}; app.favorites = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap(); app.lastCompleteRoomFrames=new WeakMap(); app.pendingRoomFrames=new WeakMap();
     app.diagnostics={dropped:[],lastEditSkipped:[],render:'not yet attempted',lastError:'',sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}};
     app.lastSent.clear(); app.packets.clear(); app.studio=null; app.studioClones=new WeakMap();
-    app.privateCloneBuilds=0;app.privateCloneCacheHits=0;app.frozenBaseRefreshes=0;
+    app.privateCloneBuilds=0;app.privateCloneCacheHits=0;app.frozenBaseRefreshes=0;app.pendingFrameReuses=0;app.atomicFrameSwaps=0;
     try {
       const saved = JSON.parse(localStorage.getItem(configKey()) || '{}');
       if (saved && typeof saved === 'object') {
@@ -647,7 +788,12 @@
     if (subject === mine && !app.allowPartnerEdits) return app.profiles[k]?.look || null;
     return (app.remote[k] && app.remote[k].look) || (app.profiles[k] && app.profiles[k].look) || null;
   }
-  function invalidate() { app.generation++; app.clones = new WeakMap(); }
+  function invalidate() {
+    app.generation++;
+    // Keep the last COMPOSITED frames as a temporary fallback while a new
+    // frame renders. Clearing these caused resized gear to flash at 100%.
+    app.clones = new WeakMap();
+  }
   function refreshView() {
     invalidate();
     // DrawCharacter renders private clones on demand. Never sync actual BC appearance.
@@ -683,7 +829,7 @@
     } catch(err) {sync.lastProblem='Could not send message: '+String(err);return false;}
     return true; // Queued for BC; not proof the partner has received it.
   };
-  function sendState(partner, subject, look, changed=Date.now(), fit='auto', braChest='auto') {
+  function sendState(partner, subject, look, changed=Date.now(), fit='auto', braChest='auto', pose='original') {
     if (!eligible(partner)) return false;
     const peer = app.peers.get(partner);
     if (!peer || !peer.enabled) return false;
@@ -692,7 +838,7 @@
     const validated = validateLook(c, look);
     if (!validated) return false;
     if (subject !== member(me()) && subject !== partner) return false;
-    const sent=syncSend(partner, {type:'STATE',subject,look:validated,fit:normalizeFit(fit),braChest:normalizeBraChest(c,braChest),ts:changed});
+    const sent=syncSend(partner, {type:'STATE',subject,look:validated,fit:normalizeFit(fit),braChest:normalizeBraChest(c,braChest),pose:normalizePrivatePose(pose),ts:changed});
     if (sent) {app.diagnostics.sync.stateSent++;app.diagnostics.sync.lastSend={subject,to:partner,ts:changed,at:Date.now(),items:validated.length};}
     return sent;
   }
@@ -705,7 +851,7 @@
       const saved = app.profiles[key(id,subject)];
       if (!saved) continue;
       if (saved.removed) sendReset(id,subject,saved.changed||0);
-      else if (Array.isArray(saved.look)) sendState(id,subject,saved.look,saved.changed||0,saved.fit,saved.braChest);
+      else if (Array.isArray(saved.look)) sendState(id,subject,saved.look,saved.changed||0,saved.fit,saved.braChest,saved.pose);
     }
   }
   function sendHello(id, force=false) {
@@ -795,10 +941,10 @@
       if (!Array.isArray(payload.look)) {ack('rejected','Invalid appearance data.');return;}
       const look=validateLook(findChar(subject),payload.look);
       if (!look) {ack('rejected','Assets could not be read.');return;}
-      const fit=normalizeFit(payload.fit),braChest=normalizeBraChest(findChar(subject),payload.braChest);
-      app.remote[k]={look,fit,braChest,received:Date.now()};
+      const fit=normalizeFit(payload.fit),braChest=normalizeBraChest(findChar(subject),payload.braChest),pose=normalizePrivatePose(payload.pose);
+      app.remote[k]={look,fit,braChest,pose,received:Date.now()};
       // Keep synchronized private looks available after a refresh/rejoin.
-      app.profiles[k]={look,fit,braChest,changed:stamp};
+      app.profiles[k]={look,fit,braChest,pose,changed:stamp};
       if(app.studio?.partner===sender && app.studio.subject===subject)app.studio.remoteChanged=true;
     }
     sync.stateReceived++;
@@ -824,7 +970,7 @@
     // Set before registerMod: even a partial startup must never register twice.
     app.registrationAttempted=true;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.4'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.8'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -837,9 +983,16 @@
         const result=next(args);
         const c=args[0];
         if (c && !c.__PawPrivateReplica) {
-          const isTarget=app.enabled && app.freezePrivateAnimations &&
+          const isTarget=app.enabled &&
             (member(c)===member(me()) || member(c)===app.selected);
-          if (isTarget && app.clones.has(c)) {
+          const savedLook=isTarget ? effectiveLook(c) : null;
+          // Transformed gear needs an atomic finished image even if the user
+          // opted out of the general animation freeze. Never evict a partially
+          // composed frame in the middle of an animation tick.
+          const hasAdjustments=Array.isArray(savedLook) && savedLook.some(
+            r=>r && r.tune && adjustableRecord(c,r) && hasGeometryTune(r.tune));
+          if (isTarget && app.clones.has(c) &&
+              (app.freezePrivateAnimations || hasAdjustments)) {
             app.frozenBaseRefreshes++;
           } else {
             app.clones.delete(c);
@@ -902,7 +1055,7 @@
             }
             const look=effectiveLook(C);
             if (look) {
-              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw,privateFit(C),privateBraChest(C));
+              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw,privateFit(C),privateBraChest(C),privatePose(C));
               if (clone && clone.Canvas) {
                 app.privateDrawCalls++;
                 app.diagnostics.render='private replica used in DrawCharacter';
@@ -949,7 +1102,7 @@
         if(!c || !c.Canvas || (source!==c.Canvas && source!==c.CanvasBlink))continue;
         const look=effectiveLook(c);
         if(!look)continue;
-        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw,privateFit(c),privateBraChest(c));
+        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw,privateFit(c),privateBraChest(c),privatePose(c));
         if(!clone || !clone.Canvas)continue;
         const replacement=source===c.CanvasBlink && !app.freezePrivateAnimations ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
         if(!replacement || replacement===source)continue;
@@ -966,73 +1119,132 @@
     const p=currentPartner();
     return !!p && (member(c)===member(me()) || member(c)===member(p));
   }
-  function getRenderClone(c,look,cache=app.clones,onReady=null,fit='auto',braChest='auto') {
+  // The room must NEVER display a half-built transformed character.
+  // BC and other addons can re-render the base while our compositor waits for
+  // item-specific source canvases. These clones are detached and local only.
+  function pendingPrivateRoomClone(c) {
+    const cached=app.pendingRoomFrames.get(c);
+    if(cached)return cached;
+    const clone=Object.assign(Object.create(Object.getPrototypeOf(c)),c);
+    const width=c.Canvas?.width||500,height=c.Canvas?.height||1000;
+    const blank=document.createElement('canvas');blank.width=width;blank.height=height;
+    clone.Canvas=blank;clone.CanvasBlink=blank;
+    clone.__PawPrivateReplica=true;
+    app.pendingRoomFrames.set(c,clone);
+    return clone;
+  }
+  function immutablePrivateRoomClone(replica) {
+    // A full copy is essential: a late BC animation must not repaint the same
+    // canvas object AFTER we've completed item scaling/compositing.
+    const width=replica.Canvas.width,height=replica.Canvas.height;
+    const snapshot=document.createElement('canvas');
+    snapshot.width=width;snapshot.height=height;
+    const ctx=snapshot.getContext('2d');
+    if(!ctx)throw new Error('No 2D context for finished private snapshot');
+    ctx.drawImage(replica.Canvas,0,0);
+    const display=Object.assign(Object.create(Object.getPrototypeOf(replica)),replica);
+    display.Canvas=snapshot;
+    display.CanvasBlink=snapshot; // don't flash unscaled art during blink
+    display.__PawPrivateReplica=true;
+    return display;
+  }
+  function getRenderClone(c,look,cache=app.clones,onReady=null,fit='auto',braChest='auto',pose='original') {
     fit=normalizeFit(fit);
     braChest=normalizeBraChest(c,braChest);
+    pose=normalizePrivatePose(pose);
+    const room=cache===app.clones;
     const cached=cache.get(c);
-    // Stable array reference is a cheap draw-frame cache key. Edits always replace the array.
-    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.generation===app.generation) {
-      if (cache===app.clones) app.privateCloneCacheHits++;
-      return cached.pending ? null : cached.clone;
+    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.pose===pose && cached.generation===app.generation) {
+      if(room)app.privateCloneCacheHits++;
+      if(room && cached.pending && cached.fallback)app.pendingFrameReuses++;
+      return cached.pending ? cached.fallback : (cached.clone||cached.fallback||null);
     }
-    if (cache===app.clones) app.privateCloneBuilds++;
+    if(room)app.privateCloneBuilds++;
     const appearance=appearanceFor(c,look,fit,braChest);
-    if (!appearance) {app.diagnostics.render='appearance data could not be normalized';return null;}
-    // Never assign the modified appearance to the real Player or room character.
+    if(!appearance) {app.diagnostics.render='appearance data could not be normalized';return null;}
     const replica=Object.assign(Object.create(Object.getPrototypeOf(c)),c);
     replica.Appearance=appearance;
-    // Only the detached clone receives a feminine gender flag. BC's asset
-    // loader may use this flag when picking female-only clothing layers.
     if(shouldRenderFeminine(c,fit,appearance))replica.Gender='F';
+    applyPrivatePose(replica,c,pose);
     replica.Canvas=document.createElement('canvas');
-    replica.Canvas.width=c.Canvas?.width || 500;
-    replica.Canvas.height=c.Canvas?.height || 1000;
+    replica.Canvas.width=c.Canvas?.width||500;
+    replica.Canvas.height=c.Canvas?.height||1000;
     replica.CanvasBlink=document.createElement('canvas');
     replica.CanvasBlink.width=replica.Canvas.width;
     replica.CanvasBlink.height=replica.Canvas.height;
     replica.DrawAppearance=appearance;
     replica.__PawPrivateReplica=true;
-    if (typeof CharacterLoadCanvas!=='function') {app.diagnostics.render='CharacterLoadCanvas is unavailable';return null;}
-    const record={lookRef:look,fit,braChest,generation:app.generation,pending:true,clone:null};
+    if(typeof CharacterLoadCanvas!=='function') {app.diagnostics.render='CharacterLoadCanvas is unavailable';return null;}
+    const tuned=look.filter(r=>adjustableRecord(c,r) && hasGeometryTune(r.tune)).slice(0,5);
+    const previous=room ? app.lastCompleteRoomFrames.get(c) : null;
+    // A previous fully adjusted frame is preferable to the public unscaled
+    // outfit while the replacement is being composed. A blank private canvas
+    // prevents a 100%-size flash on the very first frame after joining.
+    const fallback=room && tuned.length ?
+      ((previous?.partner===app.selected && previous.clone) || pendingPrivateRoomClone(c)) : null;
+    const record={lookRef:look,fit,braChest,pose,generation:app.generation,
+      pending:true,clone:null,fallback,failed:false};
     cache.set(c,record);
-    const tuned=look.filter(r=>adjustableRecord(c,r) && normalizeTune(r.tune)).slice(0,5);
-    const finish=()=>{
+    const finish=(composed=true)=>{
       if(cache.get(c)!==record)return;
-      record.pending=false;record.clone=replica;
-      app.diagnostics.render=tuned.length?'private item adjustments composited':'private replica prepared; waiting for room draw';
+      if(tuned.length && !composed){
+        record.failed=true;
+        record.pending=false;
+        record.clone=null;
+        app.diagnostics.render='Item adjustments unavailable; retaining previous private frame';
+        if(onReady)onReady();
+        return;
+      }
+      try {
+        const finalClone=tuned.length ? immutablePrivateRoomClone(replica) : replica;
+        record.clone=finalClone;
+        record.pending=false;
+        if(room) {
+          app.lastCompleteRoomFrames.set(c,{partner:app.selected,clone:finalClone});
+          if(tuned.length)app.atomicFrameSwaps++;
+        }
+        app.diagnostics.render=tuned.length?'private adjustments atomically composited':'private replica prepared; waiting for room draw';
+      }catch(err){
+        record.failed=true;
+        record.pending=false;
+        app.diagnostics.lastError='Private snapshot: '+String(err);
+        record.clone=null;
+      }
       if(onReady)onReady();
     };
     const afterLoad=()=>{
       if(cache.get(c)!==record)return;
-      if(!tuned.length) {finish();return;}
+      if(!tuned.length){finish();return;}
       let tries=0;
       const awaitSource=()=>{
         if(cache.get(c)!==record)return;
         if(thumbnailCanvasReady(replica.Canvas)){
-          applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,()=>{
-            if(cache.get(c)===record)finish();
+          applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,(composed)=>{
+            if(cache.get(c)===record)finish(composed);
           });
           return;
         }
         if(++tries<12)setTimeout(awaitSource,140+tries*70);
-        else {app.diagnostics.lastError='Item tuning: source drawing unavailable';finish();}
+        else {app.diagnostics.lastError='Item tuning: source drawing unavailable';finish(false);}
       };
       setTimeout(awaitSource,90);
     };
     try {
       const result=CharacterLoadCanvas(replica);
-      if (result && typeof result.then==='function') {
+      if(result && typeof result.then==='function'){
         Promise.resolve(result).then(afterLoad).catch(e=>{
           app.diagnostics.lastError='Asynchronous canvas failed: '+String(e);
-          if(cache.get(c)===record)finish();
+          if(cache.get(c)===record)finish(false);
         });
       } else afterLoad();
-      return tuned.length?null:replica;
-    } catch (err) {
+      if(tuned.length)return fallback;
+      return record.pending?replica:(record.clone||replica);
+    }catch(err){
       record.pending=false;
+      record.failed=true;
       app.diagnostics.render='private canvas exception: '+String(err);
       console.warn('[Paw Private Wardrobe] Could not create safe private render:',err);
-      return null;
+      return fallback;
     }
   }
   // Self-contained private compositor (not Liko-AEE's source code). It renders
@@ -1040,19 +1252,24 @@
   // uses the changed pixels as a movable visual layer on the detached canvas.
   // BC's native layer-order/alpha APIs differ by build, so this intentionally
   // does not write AEE properties to public Items or claim native layer parity.
-  function applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,onDone) {
+  function applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,onDone) {
     const width=replica.Canvas.width,height=replica.Canvas.height;
-    if(!width||!height||width>2048||height>2048){onDone();return;}
+    if(!width||!height||width>2048||height>2048){onDone(false);return;}
     const raw=document.createElement('canvas');raw.width=width;raw.height=height;
     const rawCtx=raw.getContext('2d',{willReadFrequently:true});
-    if(!rawCtx){onDone();return;}
-    try {rawCtx.drawImage(replica.Canvas,0,0);}catch(_){onDone();return;}
+    if(!rawCtx){onDone(false);return;}
+    try {rawCtx.drawImage(replica.Canvas,0,0);}catch(_){onDone(false);return;}
     const originals=rawCtx.getImageData(0,0,width,height);
     const overlays=[];
     const work=tuned.slice().sort((a,b)=>normalizeTune(a.tune).priority-normalizeTune(b.tune).priority);
     let nextIndex=0;
     const next=()=>{
       if(nextIndex>=work.length){
+        if(overlays.length!==work.length){
+          app.diagnostics.lastError='Item compositor: '+overlays.length+'/'+work.length+' adjusted layers were ready';
+          onDone(false);return;
+        }
+        let applied=false;
         try {
           const ctx=replica.Canvas.getContext('2d');
           if(ctx){
@@ -1068,9 +1285,10 @@
               ctx.drawImage(entry.canvas,-b.w/2,-b.h/2);
               ctx.restore();
             }
+            applied=true;
           }
         }catch(e){app.diagnostics.lastError='Item compositor: '+String(e);}
-        onDone();return;
+        onDone(applied);return;
       }
       const item=work[nextIndex++],t=normalizeTune(item.tune);
       if(!t){next();return;}
@@ -1079,10 +1297,14 @@
       // Render a compatible reference without this wardrobe item. We do not
       // mutate the Player or partner's actual Appearance.
       if(group?.Category==='Item')removed.push({group:item.group,asset:HIDE_ITEM,color:'Default'});
-      const plain=removed.map(x=>({group:x.group,asset:x.asset,color:x.color}));
+      const plain=removed.map(x=>{
+        const t=normalizeTune(x.tune);
+        const layerOnly=t?normalizeTune({priority:t.priority,layerOffsets:t.layerOffsets}):null;
+        return {group:x.group,asset:x.asset,color:x.color,...(x.use?{use:x.use}:{}),...(layerOnly?{tune:layerOnly}:{})};
+      });
       const cache=new WeakMap();let attempts=0;
       const ready=()=>{
-        const base=getRenderClone(c,plain,cache,ready,fit,braChest);
+        const base=getRenderClone(c,plain,cache,ready,fit,braChest,pose);
         if(base?.Canvas && thumbnailCanvasReady(base.Canvas)) {
           try{
             const baseCanvas=base.Canvas;
@@ -1188,7 +1410,7 @@
   }
   const HISTORY_LIMIT=35;
   function studioSnapshot(st) {
-    return {look:cloneJson(st.look),fit:normalizeFit(st.fit),braChest:st.braChest};
+    return {look:cloneJson(st.look),fit:normalizeFit(st.fit),braChest:st.braChest,pose:normalizePrivatePose(st.pose)};
   }
   function recordStudioChange(st) {
     if(!st)return;
@@ -1205,6 +1427,7 @@
     st.look=validateLook(c,previous.look||[]);
     st.fit=normalizeFit(previous.fit);
     st.braChest=normalizeBraChest(c,previous.braChest);
+    st.pose=normalizePrivatePose(previous.pose);
     st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
     app.studioClones=new WeakMap();app.diagnostics.lastEditSkipped=app.diagnostics.dropped.slice();
     renderStudio();
@@ -1231,6 +1454,18 @@
     st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
     app.studioClones=new WeakMap();renderStudio();
   }
+  function changeStudioPose(requested) {
+    const st=app.studio;if(!st)return;
+    const pose=normalizePrivatePose(requested);
+    if(st.pose===pose)return;
+    recordStudioChange(st);
+    st.pose=pose;st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
+    // The whole character pose affects every garment layer. Invalidate only
+    // this studio clone; don't rebuild the item catalog for animation ticks.
+    app.studioClones=new WeakMap();drawStudioCanvas();
+    const history=app.studioPanel?.querySelectorAll('.pwr-history-btn');
+    if(history?.length>1){history[0].disabled=!st.undo.length;history[1].disabled=!st.redo.length;}
+  }
   const favoriteKey=(group,asset)=>String(group)+'::'+String(asset);
   function isFavorite(group,asset){return app.favorites[favoriteKey(group,asset)]===true;}
   function toggleFavorite(group,asset) {
@@ -1245,7 +1480,7 @@
     if(subject===pid && app.peers.get(pid)?.accept===false){setStatus('Your partner disabled remote styling.');return;}
     const current=(!stored?.removed && Array.isArray(stored?.look))?stored.look:app.remote[key(pid,subject)]?.look;
     const source=(!stored?.removed&&Array.isArray(stored?.look))?stored:app.remote[key(pid,subject)];
-    app.studio={partner:pid,subject,look:cloneJson(current||snapshot(c)),fit:normalizeFit(source?.fit),braChest:normalizeBraChest(c,source?.braChest),dirty:false,remoteChanged:false,overwriteConfirmed:false,undo:[],redo:[],comparePublic:false,dragEnabled:false,dragGroup:null,dragTempLook:null,dragTempClones:null};
+    app.studio={partner:pid,subject,look:cloneJson(current||snapshot(c)),fit:normalizeFit(source?.fit),braChest:normalizeBraChest(c,source?.braChest),pose:normalizePrivatePose(source?.pose),dirty:false,remoteChanged:false,overwriteConfirmed:false,undo:[],redo:[],comparePublic:false,dragEnabled:false,dragGroup:null,dragTempLook:null,dragTempClones:null};
     app.nativeMode='slots';app.nativeTab='Clothing';app.nativePage=0;app.nativeSearch='';app.nativeSearchAsset='';app.nativeGroup='';
     app.studioClones=new WeakMap();app.editorSubject=subject;app.editorTab='Clothing';app.editorSearch='';app.editorPage=0;
     const groups=assetGroups(c).filter(g=>groupClass(g)==='Clothing');
@@ -1297,9 +1532,9 @@
     if(st.subject===st.partner && app.peers.get(st.partner)?.accept===false){setStatus('Your partner disabled remote styling.');return;}
     const c=findChar(st.subject),look=validateLook(c,st.look);if(!look)return;
     const pid=st.partner,subject=st.subject,changed=Date.now();
-    app.profiles[key(pid,subject)]={look,fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),changed};delete app.remote[key(pid,subject)];
+    app.profiles[key(pid,subject)]={look,fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),pose:normalizePrivatePose(st.pose),changed};delete app.remote[key(pid,subject)];
     saveSettings();refreshView();closeStudio();
-    const sent=sendState(pid,subject,look,changed,st.fit,st.braChest);
+    const sent=sendState(pid,subject,look,changed,st.fit,st.braChest,st.pose);
     setStatus(sent?'Private look saved and sent; awaiting acknowledgment.':'Saved locally but partner delivery is unavailable.');
   }
   function savedOutfitsFor(st) {
@@ -1314,7 +1549,7 @@
     if(list.length>=MAX_SAVED_OUTFITS){setStatus('Maximum '+MAX_SAVED_OUTFITS+' saved outfits for this person. Remove one first.');return false;}
     const raw=String(name||'').trim().slice(0,60);
     const title=raw||'Outfit '+new Date().toLocaleString();
-    list.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:title,look:cloneJson(valid),fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),savedAt:Date.now()});
+    list.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:title,look:cloneJson(valid),fit:normalizeFit(st.fit),braChest:normalizeBraChest(c,st.braChest),pose:normalizePrivatePose(st.pose),savedAt:Date.now()});
     app.outfits[k]=list;saveSettings();setStatus('Saved private outfit preset: '+title);renderStudio();return true;
   }
   function loadOutfitPreset(id) {
@@ -1325,10 +1560,10 @@
     const look=validateLook(c,cloneJson(entry.look));
     if(!look)return;
     recordStudioChange(st);
-    app.nativeThumbCache=new Map();st.look=look;st.fit=normalizeFit(entry.fit);st.braChest=normalizeBraChest(c,entry.braChest);
+    app.nativeThumbCache=new Map();st.look=look;st.fit=normalizeFit(entry.fit);st.braChest=normalizeBraChest(c,entry.braChest);st.pose=normalizePrivatePose(entry.pose);
     st.dirty=true;st.overwriteConfirmed=false;st.comparePublic=false;
     app.studioClones=new WeakMap();renderStudio();
-    setStatus('Loaded preset and body fit into your draft. Undo is available. Press Save & share when ready.');
+    setStatus('Loaded preset with private pose and body fit. Undo is available. Press Save & share when ready.');
   }
   function renameOutfitPreset(id,name) {
     const st=app.studio;if(!st)return;
@@ -1427,7 +1662,7 @@
       // Tainted/WebGL/non-readable canvases fall back safely to the whole
       // image; the character is still drawn without altering the public look.
     }
-    studioBoundsCache.set(source,{width,height,box});
+    if(box.measured)studioBoundsCache.set(source,{width,height,box});
     return box;
   }
   // Body, hair and accessories need different viewing windows. Using the
@@ -1507,6 +1742,25 @@
       return false;
     }catch(_){return true;}
   }
+  function scheduleSelectedArtworkRefresh(st,c) {
+    const look=st.look, fit=st.fit, chest=st.braChest, pose=st.pose;
+    const valid=()=>app.studio===st && st.look===look && st.fit===fit && st.braChest===chest && st.pose===pose && !st.comparePublic && !st.dragTempLook;
+    clearTimeout(app.selectedArtworkTimer);
+    // A single late rebuild for a changed asset, not a loop on each frame.
+    // Tuned outfits already have their own asynchronous compositor.
+    if(!look.some(r=>hasGeometryTune(r.tune))) {
+      app.selectedArtworkTimer=setTimeout(()=>{
+        if(!valid())return;
+        const old=app.studioClones.get(c);
+        if(old?.pending)return;
+        app.studioClones.delete(c);
+        drawStudioCanvas();
+      },1100);
+    }
+    for(const delay of [250,800,1800,3000])setTimeout(()=>{
+      if(valid())drawStudioCanvas();
+    },delay);
+  }
   function drawStudioCanvas() {
     const st=app.studio;if(!st||!app.studioPanel||app.studioPanel.style.display==='none')return;
     const scene=app.studioPanel.querySelector('.pwr-scene');
@@ -1521,7 +1775,7 @@
         const clones=st.dragTempLook?(st.dragTempClones||app.studioClones):app.studioClones;
         const clone=getRenderClone(c,look,clones,()=>{
           if(app.studio===st && !st.comparePublic)drawStudioCanvas();
-        },st.fit,st.braChest);
+        },st.fit,st.braChest,st.pose);
         source=clone?.Canvas;
       }
       if(!source)return; // Avoid displaying a stale drawing while private artwork loads.
@@ -1577,7 +1831,7 @@
       append(notice,button('Load partner look',()=>{
         const saved=app.profiles[key(st.partner,st.subject)];
         if(saved&&!saved.removed&&Array.isArray(saved.look)){
-          st.look=cloneJson(saved.look);st.fit=normalizeFit(saved.fit);st.braChest=normalizeBraChest(c,saved.braChest);
+          st.look=cloneJson(saved.look);st.fit=normalizeFit(saved.fit);st.braChest=normalizeBraChest(c,saved.braChest);st.pose=normalizePrivatePose(saved.pose);
           st.remoteChanged=false;st.overwriteConfirmed=false;st.dirty=false;st.undo=[];st.redo=[];
           app.studioClones=new WeakMap();renderStudio();
         }
@@ -1627,6 +1881,13 @@
     makeSelect(previewTools,[320,380,460,540,640].map(n=>[n,n+'px']),app.previewSize,value=>{
       app.previewSize=Number(value);saveSettings();drawStudioCanvas();
     });
+    append(previewTools,node('span','Pose','pwr-pose-label'));
+    const poseSelect=makeSelect(previewTools,POSE_OPTIONS,st.pose,value=>{
+      changeStudioPose(value);
+    });
+    poseSelect.classList.add('pwr-pose-select');
+    poseSelect.title='Private visual pose only. Does not change BC posture or restraints.';
+    poseSelect.setAttribute('aria-label','Private character pose');
     const right=node('div',undefined,'pwr-right');main.appendChild(right);
     const filter=node('div',undefined,'pwr-filter');right.appendChild(filter);
     const categories=[['Clothing','👗'],['Body','♟'],['Accessories','✦'],['Gear','⛓'],['All','☷']];
@@ -1660,12 +1921,19 @@
       return choices;
     };
     const selectAsset=(group,asset)=>{
+      const before=st.look;
+      if(asset && recFor(group)?.asset===asset.Name){scheduleSelectedArtworkRefresh(st,c);return;}
       modifyStudio(list=>{
-        const previous=list.find(r=>r.group===group.Name);
         const index=list.findIndex(r=>r.group===group.Name);
         if(index>=0)list.splice(index,1);
-        if(asset)list.push({group:group.Name,asset:asset.Name,color:previous?.color||'Default'});
+        if(asset){
+          // A new asset must not inherit the old asset's incompatible layer array.
+          list.push({group:group.Name,asset:asset.Name,color:'Default'});
+        }
       });
+      if(asset && st.look!==before && st.look.some(r=>r.group===group.Name&&r.asset===asset.Name)) {
+        scheduleSelectedArtworkRefresh(st,c);
+      }
     };
     const openGroup=(g)=>{app.nativeGroup=g.Name;showMode('catalog');};
     const openColor=(g)=>{app.nativeGroup=g.Name;app.activeColorLayer=0;showMode('colors');};
@@ -1758,20 +2026,7 @@
         append(tile,node('div',asset?.Name||'Remove','pwr-tile-sub'));
         grid.appendChild(tile);
         if(!asset){append(art,node('div','✕','pwr-tile-placeholder'));continue;}
-        // Use BC-style preview art only so the gallery matches the native
-        // wardrobe more closely. If BC exposes no preview image, show a simple
-        // placeholder rather than a custom rendered character crop.
-        const paths=catalogPreviewPaths(asset,c.AssetFamily||'Female3DCG');
-        if(!paths.length){append(art,node('div','✧','pwr-tile-placeholder'));continue;}
-        const image=node('img');image.alt=title;image.loading='lazy';image.decoding='async';art.appendChild(image);
-        let candidate=0;
-        image.onerror=()=>{
-          if(!image.isConnected)return;
-          candidate++;
-          if(candidate<paths.length)image.src=paths[candidate];
-          else {image.remove();append(art,node('div','✧','pwr-tile-placeholder'));}
-        };
-        image.src=paths[0];
+        mountCatalogImage(art,asset,c.AssetFamily||'Female3DCG',title);
       }
       addPager(items.length,per);
     } else if(app.nativeMode==='colors'){
@@ -1833,7 +2088,7 @@
         cb.addEventListener('change',()=>{st.dragEnabled=cb.checked;renderStudio();});
         append(enable,cb,node('span','Drag item on character preview'));
         controls.appendChild(enable);
-        const fields=[['x','X position',-180,180],['y','Y position',-250,250],['scaleX','Width',40,180],['scaleY','Height',40,180],['angle','Rotation',-180,180],['opacity','Opacity',0,100],['priority','Layer order',-5,5]];
+        const fields=[['x','X position',-180,180],['y','Y position',-250,250],['scaleX','Width',40,180],['scaleY','Height',40,180],['angle','Rotation',-180,180],['opacity','Opacity',0,100]];
         for(const [field,title,min,max] of fields){
           const row=node('div',undefined,'pwr-setting-row');controls.appendChild(row);
           append(row,node('label',title));
@@ -1848,6 +2103,65 @@
           };
           input.addEventListener('change',save);append(row,input,button('✓',save));
         }
+        const layering=node('div',undefined,'pwr-layering');controls.appendChild(layering);
+        append(layering,node('strong','Drawing layers · BC priority'));
+        append(layering,node('div','Higher values draw in front. Whole item shifts all its layers together; individual offsets are added to that shift.','pwr-note'));
+        const asset=assetByName(c,currentGroup,rec.asset);
+        const layerRows=[];
+        const currentTune=()=>normalizeTune(st.look.find(x=>x.group===currentGroup.Name)?.tune)||DEFAULT_TUNE;
+        const updateOffsets=(name,value)=>{
+          modifyStudioTuneFast(list=>{
+            const item=list.find(x=>x.group===currentGroup.Name);if(!item)return;
+            const old=normalizeTune(item.tune)||DEFAULT_TUNE;
+            const offsets={...(old.layerOffsets||{})};
+            if(name!==null){if(value)offsets[name]=value;else delete offsets[name];}
+            const t=normalizeTune({...old,priority:name===null?value:old.priority,layerOffsets:offsets});
+            if(t)item.tune=t;else delete item.tune;
+          });
+          refreshLayerRows();
+        };
+        const refreshLayerRows=()=>{
+          const t=currentTune();
+          for(const row of layerRows){
+            const v=row.name===null?t.priority:(t.layerOffsets?.[row.name]||0);
+            row.input.value=String(v);
+            row.back.disabled=v<=-100;row.front.disabled=v>=100;
+            row.hint.textContent=row.name===null?'Relative to native item order':'Catalog priority '+row.base+' · shift '+(t.priority+v);
+          }
+        };
+        const addLayerRow=(name,title,base)=>{
+          const row=node('div',undefined,'pwr-layer-row');layering.appendChild(row);
+          const text=node('div');const hint=node('div',undefined,'pwr-note');
+          append(text,node('strong',title),hint);append(row,text);
+          const input=node('input');input.type='number';input.min='-100';input.max='100';input.step='1';input.setAttribute('aria-label',title+' priority offset');
+          const get=()=>{const t=currentTune();return name===null?t.priority:(t.layerOffsets?.[name]||0);};
+          const set=value=>updateOffsets(name,Math.round(clamp(Number.isFinite(value)?value:get(),-100,100)));
+          const back=button('−',()=>set(get()-1));back.title='Move backward one priority';
+          const front=button('+',()=>set(get()+1));front.title='Move forward one priority';
+          input.addEventListener('change',()=>{if(input.value.trim()!=='')set(Number(input.value));else refreshLayerRows();});
+          append(row,back,input,front,button('Reset',()=>set(0)));
+          layerRows.push({name,base,input,back,front,hint});
+        };
+        addLayerRow(null,'Whole item',0);
+        const definitions=nativeLayerDefinitions(asset);
+        if(definitions.length>1 || (definitions.length===1 && definitions[0].name!=='')) {
+          for(const [index,d] of definitions.entries())addLayerRow(d.name,d.name||'Layer '+(index+1),d.base);
+        }
+        refreshLayerRows();
+        append(layering,button('Reset layer order',()=>{
+          modifyStudioTuneFast(list=>{
+            const item=list.find(x=>x.group===currentGroup.Name);if(!item)return;
+            const t=normalizeTune({...item.tune,priority:0,layerOffsets:{}});
+            if(t)item.tune=t;else delete item.tune;
+          });refreshLayerRows();
+        }));
+        if(st.look.some(r=>hasGeometryTune(r.tune)))append(layering,node('p','Items with position, scale, rotation or opacity adjustments still use the experimental overlay compositor. For exact native overlap, reset those transforms on the affected items.','pwr-note'));
+        append(layering,button('Reset transforms only (keep layers)',()=>modifyStudio(list=>{
+          const item=list.find(x=>x.group===currentGroup.Name);if(!item)return;
+          const old=normalizeTune(item.tune);if(!old)return;
+          const t=normalizeTune({priority:old.priority,layerOffsets:old.layerOffsets});
+          if(t)item.tune=t;else delete item.tune;
+        })));
         append(controls,button('Reset all adjustments',()=>modifyStudio(list=>{const item=list.find(x=>x.group===currentGroup.Name);if(item)delete item.tune;})));
       }
       pages.style.display='none';
@@ -1875,11 +2189,11 @@
     append(rightActions,button('Private fit: '+(st.fit||'auto'),()=>changeStudioFit(st.fit==='auto'?'flat':st.fit==='flat'?'original':'auto',st.braChest)),
       button('Reset private look',clearPrivateLook,'pwr-cancel'));
     drawStudioCanvas();
-    // One delayed retry for late BC images, never a loop tied to resizing.
+    // Bounded late-art refresh; never tied to resizing or animation ticks.
     const ticket=app.studioDrawTicket;
-    setTimeout(()=>{
+    for(const delay of [400,1200])setTimeout(()=>{
       if(app.studio===st && app.studioDrawTicket===ticket && canvas.isConnected)drawStudioCanvas();
-    },400);
+    },delay);
   }
 
   function applyLauncherPosition() {
@@ -1957,6 +2271,13 @@
     // Window resize only changes CSS layout; fixed-size character pixels remain cached.
     globalThis.PawPrivateWardrobe = Object.freeze({
       version:VERSION,
+      assetPreviewStatus(group,assetName){
+        const c=app.studio?findChar(app.studio.subject):me();
+        const g=groupByName(c,String(group||app.nativeGroup||''));
+        const a=assetByName(c,g,String(assetName||app.studio?.look?.find(r=>r.group===g?.Name)?.asset||''));
+        if(!a)return {found:false,group:group||app.nativeGroup,asset:assetName};
+        return {found:true,group:g.Name,asset:a.Name,dynamicGroup:a.DynamicGroupName||null,dynamicName:a.DynamicAssetName||a.DynamicName||null,paths:catalogPreviewPaths(a,c?.AssetFamily),failure:previewFailures.get(g.Name+'/'+a.Name)||null,draftSelected:app.studio?.look?.find(r=>r.group===g.Name)?.asset||null,render:app.diagnostics.render,lastError:app.diagnostics.lastError};
+      },
       open(){app.panel.style.display='block';renderPanel();},
       studio(subject=member(me())){beginStudio(Number(subject));},
       closeStudio(){closeStudio();},
@@ -1989,7 +2310,7 @@
           partner:p?.MemberNumber||null,hasSavedLook:!!(p&&effectiveLook(p)),
           localHasSavedLook:!!(me()&&effectiveLook(me())),
           partnerFit:p?privateFit(p):null,localFit:me()?privateFit(me()):null,
-          partnerBraChest:p?privateBraChest(p):null,localBraChest:me()?privateBraChest(me()):null,
+          partnerBraChest:p?privateBraChest(p):null,localBraChest:me()?privateBraChest(me()):null,partnerPose:p?privatePose(p):null,localPose:me()?privatePose(me()):null,
           privateDrawCharacter:app.privateDrawCalls,privateDrawCanvas:app.privateCanvasCalls,
           freezePrivateAnimations:app.freezePrivateAnimations,
           privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,
@@ -2009,7 +2330,7 @@
         const p=currentPartner(),sub=app.studio?.subject||member(me()),c=findChar(sub);
         const look=app.studio?.look || snapshot(c);
         const checked=normalizeLook(c,look);
-        return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,studioLayout:app.studioLayout,freezePrivateAnimations:app.freezePrivateAnimations,privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,frozenBaseRefreshes:app.frozenBaseRefreshes,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,history:{undo:app.studio?.undo?.length||0,redo:app.studio?.redo?.length||0},favoriteCount:Object.keys(app.favorites).length,comparePublic:!!app.studio?.comparePublic,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
+        return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,studioLayout:app.studioLayout,privatePose:app.studio?normalizePrivatePose(app.studio.pose):(c?privatePose(c):'original'),freezePrivateAnimations:app.freezePrivateAnimations,privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,frozenBaseRefreshes:app.frozenBaseRefreshes,pendingFrameReuses:app.pendingFrameReuses,atomicFrameSwaps:app.atomicFrameSwaps,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,history:{undo:app.studio?.undo?.length||0,redo:app.studio?.redo?.length||0},favoriteCount:Object.keys(app.favorites).length,comparePublic:!!app.studio?.comparePublic,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
       },
       refresh(){refreshView();},
       setFreezePrivateAnimations(enabled) {
