@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Paw Private Wardrobe (Two-Person)
 // @namespace    https://bondageprojects.com/
-// @version      0.3.9-beta
+// @version      0.3.11-beta
 // @description  Private outfits with pose selection, unrestricted catalog and native-style editing.
 // @match        https://*.bondageprojects.elementfx.com/R*
 // @match        https://*.bondageprojects.com/R*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 /*
- * Paw Private Wardrobe, beta 0.3.9
+ * Paw Private Wardrobe, beta 0.3.11
  * Both participants install this userscript. Both must be in the same chatroom.
  * Default state is VIEWING. Editing requires deliberately opening the studio.
  * A studio draft NEVER shadows incoming saved partner looks in the chatroom.
@@ -27,7 +27,7 @@
  */
 (() => {
   'use strict';
-  const VERSION = '0.3.9-beta';
+  const VERSION = '0.3.11-beta';
   const MARKER = 'PWRD1:';
   const MAX_ITEMS = 240;
   const HIDE_ITEM = '@private-remove';
@@ -137,10 +137,16 @@
     profiles: {}, outfits: {}, launcherPosition: null, favorites: {}, favoritesOnly: false, sections: {slots:true,styles:true,tuning:false,use:false,colors:false,outfits:false}, activeColorLayer: 0, studioDrawTicket: 0, remote: {}, studio: null, studioPanel: null, studioClones: new WeakMap(), studioResizeObserver: null, studioFit: null, studioLayout: 'bc', previewSize: 380, showBackgroundTools: false, background: 'violet', customBackground: '', sessionBackground: '', showThumbnails: true, thumbnailFocus: 'item', lastSent: new Map(), peers: new Map(),
     netQueue: [], netTimer: null, netLastSend: -Infinity, netRoom: null, netSession: Math.random().toString(36).slice(2), netReplays: new Map(), netStats: {partsSent:0, cancelled:0, duplicateStates:0, replaySuppressed:0, peakParts:0},
     packets: new Map(), clones: new WeakMap(), lastCompleteRoomFrames: new WeakMap(), pendingRoomFrames: new WeakMap(), generation: 1, privateCloneBuilds: 0, privateCloneCacheHits: 0, frozenBaseRefreshes: 0, pendingFrameReuses: 0, atomicFrameSwaps: 0,
+    cuddle: null, cuddlePositions: new Map(), cuddleFrame: 0,
+    cuddleRunHook: false, cuddleDraws: 0, cuddleLast: null,
     drawScope: 0, nativeDrawScope: 0, roomDrawHookAvailable: false, roomDrawHookSeen: false, roomDrawCalls: 0, privateDrawCalls: 0, nativeDrawSkips: 0, canvasHookCalls: 0, privateCanvasCalls: 0, canvasHookNames: [], nativeHookNames: [], renderReadyChecks: 0,
     editorSubject: 0, editorGroup: '', editorAsset: '', editorTab: 'Clothing', editorPage: 0, editorSearch: '', lastAccount: 0,
     diagnostics: {dropped:[], lastEditSkipped:[], render:'not yet attempted', lastError:'', sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}},
   };
+  // Performance: counters are cumulative until the page reloads.
+  const perf = {catalogBuilds:0, pairScans:0, studioPaints:0, studioBuilds:0,
+    cancelledComposites:0, diffPasses:0, roomRedraws:0, animatedRefreshThrottles:0};
+  let frameDepth=0, framePair=undefined, replicaLoadDepth=0;
   const me = () => (typeof Player !== 'undefined' && Player && Number.isInteger(Player.MemberNumber) ? Player : null);
   const member = c => (c && Number.isInteger(c.MemberNumber) ? c.MemberNumber : 0);
   const inRoom = () => typeof ChatRoomCharacter !== 'undefined' && Array.isArray(ChatRoomCharacter) && !!me() && (typeof CurrentScreen === 'undefined' || CurrentScreen === 'ChatRoom');
@@ -255,34 +261,62 @@
   // The catalog is independent of inventory ownership, shop Value, gender and
   // regular item permission checks. This editor only paints detached replicas.
   // Item groups are included as *visual-only gear*, not real equipped restraints.
-  const assetGroups = (character) => {
-    if (!character || typeof AssetGroup === 'undefined' || !Array.isArray(AssetGroup)) return [];
-    const fam = character.AssetFamily || 'Female3DCG';
-    return AssetGroup.filter(g => g && (g.Category === 'Appearance' || g.Category === 'Item') &&
-      (!g.Family || g.Family === fam))
-      .sort((a,b) => a.Name.localeCompare(b.Name));
-  };
-  const groupByName = (c, groupName) => assetGroups(c).find(g => g.Name === groupName);
-  const catalogCache = new WeakMap();
-  const groupAssets = group => {
-    if (!group) return [];
-    const gList = Array.isArray(group.Asset) ? group.Asset : [];
-    const globals = typeof Asset !== 'undefined' && Array.isArray(Asset) ? Asset : [];
-    const cached = catalogCache.get(group);
-    if (cached && cached.globalSize === globals.length && cached.groupSize === gList.length) return cached.assets;
-    const result = [...gList];
-    // Some addons register in the global registry before linking their group.
-    const known = new Set(result.map(a => a?.Name));
-    for (const a of globals) if (a?.Group?.Name === group.Name &&
-      (!a.Group.Family || !group.Family || a.Group.Family === group.Family) &&
-      a.Name && !known.has(a.Name)) {result.push(a);known.add(a.Name);}
-    const assets = result.filter(a => a && typeof a.Name === 'string');
-    catalogCache.set(group,{globalSize:globals.length,groupSize:gList.length,assets});
-    return assets;
-  };
+  // Index once per registry revision, not once per wardrobe item.
+  let registry=null;const EMPTY_REGISTRY=[];
+  function getRegistry() {
+    const groups=typeof AssetGroup!=='undefined' && Array.isArray(AssetGroup)?AssetGroup:EMPTY_REGISTRY;
+    const assets=typeof Asset!=='undefined' && Array.isArray(Asset)?Asset:EMPTY_REGISTRY;
+    if(registry && registry.groups===groups && registry.assets===assets &&
+        registry.groupCount===groups.length && registry.assetCount===assets.length)return registry;
+    const byGroup=new Map(),byName=new Map();
+    for(const a of assets){
+      if(!a?.Group?.Name || typeof a.Name!=='string')continue;
+      if(!byGroup.has(a.Group.Name))byGroup.set(a.Group.Name,[]);
+      byGroup.get(a.Group.Name).push(a);
+      if(!byName.has(a.Name))byName.set(a.Name,[]);
+      byName.get(a.Name).push(a);
+    }
+    perf.catalogBuilds++;
+    return registry={groups,assets,groupCount:groups.length,assetCount:assets.length,
+      byGroup,byName,families:new Map(),catalogs:new WeakMap(),previews:new WeakMap()};
+  }
+  function familyCatalog(c) {
+    const reg=getRegistry(),fam=c.AssetFamily||'Female3DCG';
+    let entry=reg.families.get(fam);
+    if(!entry){
+      const groups=reg.groups.filter(g=>g && (g.Category==='Appearance'||g.Category==='Item') &&
+        (!g.Family||g.Family===fam)).sort((a,b)=>a.Name.localeCompare(b.Name));
+      const names=new Map();for(const g of groups)if(!names.has(g.Name))names.set(g.Name,g);
+      entry={groups,names};reg.families.set(fam,entry);
+    }
+    return entry;
+  }
+  const assetGroups=c=>c?familyCatalog(c).groups:[];
+  const groupByName=(c,name)=>c?familyCatalog(c).names.get(name):undefined;
+  function groupCatalog(group) {
+    const reg=getRegistry();
+    const list=Array.isArray(group.Asset)?group.Asset:null;
+    const cached=reg.catalogs.get(group);
+    if(cached && cached.list===list && cached.size===(list?.length||0))return cached;
+    const result=[...(list||[])],known=new Set(result.map(a=>a?.Name));
+    for(const a of reg.byGroup.get(group.Name)||[]){
+      if((!a.Group.Family||!group.Family||a.Group.Family===group.Family)&&!known.has(a.Name)){
+        result.push(a);known.add(a.Name);
+      }
+    }
+    const assets=result.filter(a=>a&&typeof a.Name==='string'), names=new Map();
+    for(const a of assets)if(!names.has(a.Name))names.set(a.Name,a);
+    const entry={list,size:list?.length||0,assets,names,sorted:null};
+    reg.catalogs.set(group,entry);return entry;
+  }
+  const groupAssets=g=>g?groupCatalog(g).assets:[];
+  function sortedGroupAssets(g){
+    const e=groupCatalog(g);
+    return e.sorted||(e.sorted=e.assets.slice().sort((a,b)=>String(a.Description||a.Name).localeCompare(String(b.Description||b.Name))));
+  }
   const assetByName = (c, g, assetName) => {
     if (!g || !assetName || assetName === HIDE_ITEM) return null;
-    let a = groupAssets(g).find(a => a && a.Name === assetName);
+    let a = groupCatalog(g).names.get(assetName);
     if (!a && typeof AssetGet === 'function') {
       try { a = AssetGet(c.AssetFamily || 'Female3DCG', g.Name, assetName); } catch (_) {}
     }
@@ -301,6 +335,9 @@
     if (!asset || typeof asset.Name!=='string' || !asset.Group?.Name) return [];
     const g=asset.Group;
     const family=typeof g.Family==='string' ? g.Family : g.Family?.Name || familyHint || 'Female3DCG';
+    const reg=getRegistry();
+    const previous=reg.previews.get(asset);
+    if(previous?.family===family)return previous.paths.slice();
     const files=[];
     const add=raw=>{
       if(typeof raw!=='string'||!raw.trim())return;
@@ -337,7 +374,7 @@
     // Catalog entries with the identical internal name can share an icon.
     // Do not guess by translated display label, which can match unrelated items.
     if(typeof Asset!=='undefined'&&Array.isArray(Asset)){
-      for(const other of Asset){
+      for(const other of reg.byName.get(asset.Name)||[]){
         if(other===asset||other?.Name!==asset.Name||!other.Group?.Name)continue;
         const f=other.Group.Family;
         if(f && (typeof f==='string'?f:f.Name)!==family)continue;
@@ -345,7 +382,7 @@
         if(files.length>=10)break;
       }
     }
-    return files.slice(0,10);
+    const paths=files.slice(0,10);reg.previews.set(asset,{family,paths});return paths.slice();
   }
   const previewURLCache=new Map();
   const previewFailures=new Map();
@@ -354,7 +391,7 @@
     const key=JSON.stringify(paths);
     const cached=previewURLCache.get(key);
     if(cached){const index=paths.indexOf(cached);if(index>=0)paths.splice(index,1);paths.unshift(cached);}
-    const image=node('img');image.alt=title;image.loading='eager';image.decoding='async';
+    const image=node('img');image.alt=title;image.loading='lazy';image.decoding='async';
     art.appendChild(image);
     let index=0;
     const failed=()=>{
@@ -367,6 +404,10 @@
     };
     image.onload=()=>{if(!image.isConnected)return;previewURLCache.set(key,paths[index]);if(previewURLCache.size>400)previewURLCache.delete(previewURLCache.keys().next().value);previewFailures.delete(asset.Group.Name+'/'+asset.Name);};
     image.onerror=()=>{if(!image.isConnected)return;if(++index<paths.length)image.src=paths[index];else failed();};
+    const recent=previewFailures.get(asset.Group.Name+'/'+asset.Name);
+    if(recent && Date.now()-recent.at<60000 && JSON.stringify(recent.paths)===JSON.stringify(paths)){
+      image.remove();append(art,node('div','Preview unavailable','pwr-tile-placeholder'));return;
+    }
     if(paths.length)image.src=paths[0];else failed();
   }
 
@@ -442,9 +483,9 @@
   }
   function normalizeItemUse(asset,raw) {
     if(!raw||typeof raw!=='object')return null;
-    const choices=itemVisualOptions(asset);
     const type=typeof raw.type==='string'?raw.type:typeof raw.Type==='string'?raw.Type:null;
     if(type===null)return null;
+    const choices=itemVisualOptions(asset);
     const chosen=choices.find(x=>x.type===type && (
       !raw.typeRecord || JSON.stringify(raw.typeRecord)===JSON.stringify(x.typeRecord)));
     return chosen?{type:chosen.type,...(chosen.typeRecord?{typeRecord:chosen.typeRecord}:{})}:null;
@@ -727,7 +768,7 @@
   const configKey = () => `pawPrivateWardrobe:v1:${member(me())}`;
   function loadSettings() {
     const id = member(me()); if (!id || id === app.lastAccount) return;
-    app.lastAccount = id;
+    app.lastAccount = id;stopCuddle();
     app.profiles = {}; app.outfits = {}; app.favorites = {}; app.remote = {}; app.peers.clear(); app.clones = new WeakMap(); app.lastCompleteRoomFrames=new WeakMap(); app.pendingRoomFrames=new WeakMap();
     app.diagnostics={dropped:[],lastEditSkipped:[],render:'not yet attempted',lastError:'',sync:{stateSent:0,stateReceived:0,ackReceived:0,ackRejected:0,lastSend:null,lastReceive:null,lastAck:null,lastProblem:''}};
     app.lastSent.clear(); app.packets.clear(); app.studio=null; app.studioClones=new WeakMap();
@@ -775,26 +816,35 @@
     catch(err) { console.warn('[Paw Private Wardrobe] Local save failed:',err); }
   }
   const currentPartner = () => {
+    perf.pairScans++;
     const ps = partners();
     if (ps.length === 1 && !ps.some(c => member(c) === app.selected)) app.selected = member(ps[0]);
     return ps.find(c => member(c) === app.selected) || null;
   };
-  function effectiveLook(c) {
-    if (!app.enabled || !c || !inRoom()) return null;
-    const partner = currentPartner(); if (!partner) return null;
-    const subject = member(c), mine = member(me()), pid = member(partner);
-    if (subject !== mine && subject !== pid) return null;
-    const peer = app.peers.get(pid);
-    if (peer && !peer.enabled) return null;
-    if (subject === pid && peer && !peer.accept) return null;
-    // A studio draft NEVER overrides the room appearance. The saved partner
-    // state remains visible even while an editor is open on either client.
-    const k = key(pid, subject);
-    if (subject === mine && !app.allowPartnerEdits) return app.profiles[k]?.look || null;
-    return (app.remote[k] && app.remote[k].look) || (app.profiles[k] && app.profiles[k].look) || null;
+  function roomPair(){
+    if(frameDepth && framePair!==undefined)return framePair;
+    const own=me(),partner=app.enabled&&inRoom()?currentPartner():null;
+    const pair=partner?{own,partner,pid:member(partner),mine:member(own)}:null;
+    if(frameDepth)framePair=pair;
+    return pair;
+  }
+  function effectiveProfile(c,pair=roomPair()){
+    if(!app.enabled || !c || !pair || !inRoom())return null;
+    const subject=member(c),{mine,pid}=pair;
+    if(subject!==mine && subject!==pid)return null;
+    const peer=app.peers.get(pid);
+    if(peer && (!peer.enabled || (subject===pid && !peer.accept)))return null;
+    const k=key(pid,subject);
+    const entry=subject===mine&&!app.allowPartnerEdits?app.profiles[k]:
+      (app.remote[k]?.look?app.remote[k]:app.profiles[k]);
+    return entry?.look?entry:null;
+  }
+  function effectiveLook(c){return effectiveProfile(c)?.look||null;}
+  function roomClone(c,profile){
+    return getRenderClone(c,profile.look,app.clones,requestRoomRedraw,profile.fit,profile.braChest,profile.pose);
   }
   function invalidate() {
-    app.generation++;
+    app.generation++;framePair=undefined;
     // Keep the last COMPOSITED frames as a temporary fallback while a new
     // frame renders. Clearing these caused resized gear to flash at 100%.
     app.clones = new WeakMap();
@@ -804,10 +854,15 @@
     // DrawCharacter renders private clones on demand. Never sync actual BC appearance.
     requestRoomRedraw();
   }
+  let roomRedrawTimer=null;
   function requestRoomRedraw() {
-    // One-shot update only; do not request 30 FPS or run a second full BC draw.
-    try { if (typeof AnimationRequestDraw === 'function') { AnimationRequestDraw(); return; } } catch (_) {}
-    try { if (typeof ChatRoomCharacterViewUpdate === 'function') ChatRoomCharacterViewUpdate(); } catch (_) {}
+    if(roomRedrawTimer!==null || !inRoom())return;
+    roomRedrawTimer=setTimeout(()=>{
+      roomRedrawTimer=null;if(!inRoom())return;
+      perf.roomRedraws++;
+      try {if(typeof AnimationRequestDraw==='function'){AnimationRequestDraw();return;}}catch(_){}
+      try {if(typeof ChatRoomCharacterViewUpdate==='function')ChatRoomCharacterViewUpdate();}catch(_){}
+    },0);
   }
   function networkRoom() {
     if(!inRoom())return null;
@@ -822,9 +877,55 @@
     app.netQueue=[];app.packets.clear();app.netReplays.clear();app.lastSent.clear();app.peers.clear();
     if(reason)app.diagnostics.sync.lastProblem=reason;
   }
+  // A cuddle is a session-local pair arrangement, not a BC pose or an outfit packet.
+  // Coordinates are BC logical screen coordinates, not browser pixels.
+  function stopCuddle() {
+    app.cuddle=null;app.cuddlePositions.clear();app.cuddleLast=null;
+  }
+  function startCuddle(moving,side='left',distance=110,vertical=28) {
+    const p=currentPartner(),own=member(me()),pid=member(p),room=networkRoom();
+    moving=Number(moving);
+    if(!app.enabled || !room || !pid || ![own,pid].includes(moving) || !eligible(pid) || app.peers.get(pid)?.enabled===false)return false;
+    const clamp=(n,min,max,fallback)=>Number.isFinite(Number(n))?Math.max(min,Math.min(max,Number(n))):fallback;
+    app.cuddle={room,partner:pid,moving,anchor:moving===own?pid:own,
+      side:side==='right'?'right':'left',distance:clamp(distance,0,300,110),vertical:clamp(vertical,-150,150,28)};
+    app.cuddlePositions.clear();app.cuddleLast=null;requestRoomRedraw();return true;
+  }
+  function cuddleActive() {
+    const q=app.cuddle;
+    if(!q)return false;
+    if(!app.enabled || q.room!==networkRoom() || app.selected!==q.partner || !eligible(q.partner)){
+      stopCuddle();return false;
+    }
+    // A peer explicitly opting out also ends the local arrangement.
+    if(app.peers.get(q.partner)?.enabled===false){stopCuddle();return false;}
+    return true;
+  }
+  function cuddleDrawArgs(args) {
+    // Never change wardrobe, item dialog, or unscoped drawing coordinates.
+    // The supported path is an ordinary room character draw. No extra draw calls.
+    if(!app.cuddle || app.nativeDrawScope || !app.drawScope || !cuddleActive())return args;
+    const q=app.cuddle,c=args[0],id=member(c);
+    if(!c || c.__PawPrivateReplica || (id!==q.moving && id!==q.anchor))return args;
+    const [x,y,z]=args.slice(1,4);
+    if(![x,y,z].every(Number.isFinite)||z<=0||z>4)return args;
+    const now=Date.now();
+    app.cuddlePositions.set(id,{x,y,z,frame:app.cuddleFrame,at:now});
+    if(id!==q.moving)return args;
+    const a=app.cuddlePositions.get(q.anchor);
+    // If the other player is drawn later, use its previous frame position.
+    // Don't reuse offscreen/stale positions from a different room or page.
+    if(!a || now-a.at>1200 || (app.cuddleRunHook && app.cuddleFrame-a.frame>1))return args;
+    const result=args.slice();
+    // Match logical canvas centres and floor lines, preserving existing zoom.
+    result[1]=a.x+250*(a.z-z)+(q.side==='right'?1:-1)*q.distance*a.z;
+    result[2]=a.y+1000*(a.z-z)+q.vertical*a.z;
+    app.cuddleDraws++;app.cuddleLast={moving:id,anchor:q.anchor,x:result[1],y:result[2],zoom:z};
+    return result;
+  }
   function checkNetworkRoom() {
     const room=networkRoom();
-    if(room!==app.netRoom){cancelNetwork('');app.netRoom=room;app.netSession=Math.random().toString(36).slice(2);}
+    if(room!==app.netRoom){if(app.cuddle && app.cuddle.room!==room)stopCuddle();cancelNetwork('');app.netRoom=room;app.netSession=Math.random().toString(36).slice(2);}
     return room;
   }
   function queuedParts(){return app.netQueue.reduce((n,j)=>n+j.total-j.index,0);}
@@ -1047,7 +1148,7 @@
     // Set before registerMod: even a partial startup must never register twice.
     app.registrationAttempted=true;
     try {
-      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.9'});
+      app.mod = globalThis.bcModSdk.registerMod({name:'PawPrivateWardrobe',fullName:'Paw Private Wardrobe',version:'0.3.11'});
       app.mod.hookFunction('ChatRoomMessage', 15, (args,next) => {
         try { if (parseChunk(args[0])) return; } catch(err) {console.error('[Paw Private Wardrobe] Message error:',err);}
         return next(args);
@@ -1059,20 +1160,13 @@
       app.mod.hookFunction('CharacterLoadCanvas', 10, (args,next) => {
         const result=next(args);
         const c=args[0];
-        if (c && !c.__PawPrivateReplica) {
-          const isTarget=app.enabled &&
-            (member(c)===member(me()) || member(c)===app.selected);
-          const savedLook=isTarget ? effectiveLook(c) : null;
-          // Transformed gear needs an atomic finished image even if the user
-          // opted out of the general animation freeze. Never evict a partially
-          // composed frame in the middle of an animation tick.
-          const hasAdjustments=Array.isArray(savedLook) && savedLook.some(
-            r=>r && r.tune && adjustableRecord(c,r) && hasGeometryTune(r.tune));
-          if (isTarget && app.clones.has(c) &&
-              (app.freezePrivateAnimations || hasAdjustments)) {
-            app.frozenBaseRefreshes++;
-          } else {
-            app.clones.delete(c);
+        if(c && !c.__PawPrivateReplica){
+          const cached=app.clones.get(c);
+          if(cached){
+            if(app.freezePrivateAnimations || cached.tuned){app.frozenBaseRefreshes++;}
+            else if(cached.pending){cached.dirty=true;perf.animatedRefreshThrottles++;}
+            else if(performance.now()-cached.builtAt>=125)app.clones.delete(c);
+            else {cached.dirty=true;perf.animatedRefreshThrottles++;}
           }
         }
         return result;
@@ -1115,33 +1209,46 @@
           app.canvasHookNames.push(name);
         } catch(_) { /* Function absent in this BC build. */ }
       }
-      // A detached character clone is drawn instead of changing the live Appearance or Canvas.
-      app.mod.hookFunction('DrawCharacter', 15, (args,next) => {
-        const C=args[0];
+      // Keep other addons' original character identity and placement arguments
+      // until the late draw stage. Do not call next twice if a downstream hook throws.
+      try {
+        if(typeof globalThis.ChatRoomRun==='function') {
+          app.mod.hookFunction('ChatRoomRun', 1000, (args,next)=>{
+            app.cuddleFrame++;
+            if(frameDepth++===0)framePair=undefined;
+            try{return next(args);}finally{if(--frameDepth===0)framePair=undefined;}
+          });
+          app.cuddleRunHook=true;
+        }
+      }catch(_){ /* room character scope still works without a frame counter */ }
+      app.mod.hookFunction('DrawCharacter', -1000, (args,next) => {
+        let prepared=args;
         try {
-          const subjectId=member(C);
-          // Fast-path: the room draws many unrelated characters each frame.
-          // Only the current account and selected partner can have a private look.
-          if (app.enabled && C && subjectId &&
-              (subjectId===member(me()) || subjectId===app.selected) &&
-              eligiblePartnerForCharacter(C)) {
-            const inRoomDraw = app.drawScope > 0;
-            if (!inRoomDraw && isNativeInteractionOpen()) {
-              app.nativeDrawSkips++;
-              return next(args); // Native item/zone UI needs the real character.
-            }
-            const look=effectiveLook(C);
-            if (look) {
-              const clone=getRenderClone(C,look,app.clones,requestRoomRedraw,privateFit(C),privateBraChest(C),privatePose(C));
-              if (clone && clone.Canvas) {
-                app.privateDrawCalls++;
-                app.diagnostics.render='private replica used in DrawCharacter';
-                return next([clone,...args.slice(1)]);
+          const C=args[0],subjectId=member(C);
+          if(app.enabled && !replicaLoadDepth && C && !C.__PawPrivateReplica && subjectId &&
+              (subjectId===member(me()) || subjectId===app.selected)){
+            if(isNativeInteractionOpen()||app.nativeDrawScope>0){app.nativeDrawSkips++;}
+            else {
+              const pair=roomPair();
+              if(pair && (subjectId===pair.mine||subjectId===pair.pid)){
+                if(app.cuddle)prepared=cuddleDrawArgs(args);
+                const profile=effectiveProfile(C,pair);
+                if(profile){
+                  const clone=roomClone(C,profile);
+                  if(clone?.Canvas){
+                    app.privateDrawCalls++;
+                    app.diagnostics.render='private replica used in late DrawCharacter hook';
+                    prepared=[clone,...prepared.slice(1)];
+                  }
+                }
               }
             }
           }
-        } catch(err) {console.warn('[Paw Private Wardrobe] Render fallback to public:',err);}
-        return next(args);
+        } catch(err) {
+          app.diagnostics.lastError='Private drawing: '+String(err);
+          prepared=args;
+        }
+        return next(prepared);
       });
       return true;
     } catch(err) {app.initFatal=true;app.diagnostics.lastError=String(err);console.error('[Paw Private Wardrobe] Hook registration failed (no retry)',err);return false;}
@@ -1162,33 +1269,28 @@
     finally { app.nativeDrawScope--; }
   }
   function candidateCanvasReplacement(args) {
-    if (!app.enabled || !inRoom() || isNativeInteractionOpen()) return null;
-    // Some BC views draw the stored character canvases directly, without
-    // calling DrawCharacter. Never rewrite canvas data or actual Appearance;
-    // replace only the source-canvas argument for this single draw call.
-    // This function is called for *every* room canvas operation. Most calls
-    // draw backgrounds/UI/other players, not one of our two characters. Check
-    // canvas identity first; don't scan relationships until we find a match.
-    const own=me();
-    const partner=app.selected ? findChar(app.selected) : null;
-    if(!own && !partner)return null;
-    for(let i=0;i<Math.min(args.length,10);i++) {
+    if(!app.enabled || replicaLoadDepth || !inRoom() || isNativeInteractionOpen())return null;
+    // Most drawing helpers receive a URL, not a canvas. Reject those without
+    // touching the room roster. During ChatRoomRun reuse the frame's pair.
+    let possible=false;
+    for(let i=0;i<Math.min(args.length,10);i++){
+      const v=args[i];if(v && typeof v==='object' && typeof v.getContext==='function'){possible=true;break;}
+    }
+    if(!possible)return null;
+    const own=me(),pair=frameDepth?roomPair():null;
+    const partner=frameDepth?pair?.partner:(app.selected?findChar(app.selected):null);
+    for(let i=0;i<Math.min(args.length,10);i++){
       const source=args[i];
-      if (!source || (typeof source!=='object' && typeof source!=='function')) continue;
-      for(const c of [own,partner]){
-        if(!c || !c.Canvas || (source!==c.Canvas && source!==c.CanvasBlink))continue;
-        const look=effectiveLook(c);
-        if(!look)continue;
-        const clone=getRenderClone(c,look,app.clones,requestRoomRedraw,privateFit(c),privateBraChest(c),privatePose(c));
-        if(!clone || !clone.Canvas)continue;
-        const replacement=source===c.CanvasBlink && !app.freezePrivateAnimations ? (clone.CanvasBlink||clone.Canvas) : clone.Canvas;
-        if(!replacement || replacement===source)continue;
-        const updated=args.slice();
-        updated[i]=replacement;
-        app.privateCanvasCalls++;
-        app.diagnostics.render='private character canvas substituted for room draw';
-        return updated;
-      }
+      if(!source || typeof source!=='object')continue;
+      const c=own&&(source===own.Canvas||source===own.CanvasBlink)?own:
+        partner&&(source===partner.Canvas||source===partner.CanvasBlink)?partner:null;
+      if(!c)continue;
+      const profile=effectiveProfile(c,pair||roomPair());if(!profile)continue;
+      const clone=roomClone(c,profile);if(!clone?.Canvas)continue;
+      const replacement=source===c.CanvasBlink&&!app.freezePrivateAnimations?(clone.CanvasBlink||clone.Canvas):clone.Canvas;
+      if(!replacement||replacement===source)continue;
+      const updated=args.slice();updated[i]=replacement;app.privateCanvasCalls++;
+      app.diagnostics.render='private character canvas substituted for room draw';return updated;
     }
     return null;
   }
@@ -1225,18 +1327,20 @@
     display.__PawPrivateReplica=true;
     return display;
   }
-  function getRenderClone(c,look,cache=app.clones,onReady=null,fit='auto',braChest='auto',pose='original') {
+  function getRenderClone(c,look,cache=app.clones,onReady=null,fit='auto',braChest='auto',pose='original',parentActive=null) {
     fit=normalizeFit(fit);
     braChest=normalizeBraChest(c,braChest);
     pose=normalizePrivatePose(pose);
-    const room=cache===app.clones;
+    const room=cache===app.clones,studio=cache===app.studioClones,st=app.studio;
+    const drag=!!st&&cache===st.dragTempClones;
     const cached=cache.get(c);
-    if (cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.pose===pose && cached.generation===app.generation) {
+    const expired=room&&cached?.dirty&&!cached.pending&&!app.freezePrivateAnimations&&!cached.tuned&&performance.now()-cached.builtAt>=125;
+    if (!expired && cached && cached.lookRef===look && cached.fit===fit && cached.braChest===braChest && cached.pose===pose && (!room||(cached.generation===app.generation&&cached.partner===app.selected))) {
       if(room)app.privateCloneCacheHits++;
       if(room && cached.pending && cached.fallback)app.pendingFrameReuses++;
       return cached.pending ? cached.fallback : (cached.clone||cached.fallback||null);
     }
-    if(room)app.privateCloneBuilds++;
+    if(room)app.privateCloneBuilds++;else if(studio||drag)perf.studioBuilds++;
     const appearance=appearanceFor(c,look,fit,braChest);
     if(!appearance) {app.diagnostics.render='appearance data could not be normalized';return null;}
     const replica=Object.assign(Object.create(Object.getPrototypeOf(c)),c);
@@ -1252,7 +1356,7 @@
     replica.DrawAppearance=appearance;
     replica.__PawPrivateReplica=true;
     if(typeof CharacterLoadCanvas!=='function') {app.diagnostics.render='CharacterLoadCanvas is unavailable';return null;}
-    const tuned=look.filter(r=>adjustableRecord(c,r) && hasGeometryTune(r.tune)).slice(0,5);
+    const tuned=look.filter(r=>r.tune && hasGeometryTune(r.tune) && adjustableRecord(c,r)).slice(0,5);
     const previous=room ? app.lastCompleteRoomFrames.get(c) : null;
     // A previous fully adjusted frame is preferable to the public unscaled
     // outfit while the replacement is being composed. A blank private canvas
@@ -1260,16 +1364,22 @@
     const fallback=room && tuned.length ?
       ((previous?.partner===app.selected && previous.clone) || pendingPrivateRoomClone(c)) : null;
     const record={lookRef:look,fit,braChest,pose,generation:app.generation,
-      pending:true,clone:null,fallback,failed:false};
+      pending:true,clone:null,fallback,failed:false,partner:room?app.selected:0,tuned:!!tuned.length,builtAt:performance.now(),dirty:false};
     cache.set(c,record);
+    const active=()=>cache.get(c)===record && (!parentActive||parentActive()) &&
+      (!room || (app.enabled && inRoom() && cache===app.clones && record.generation===app.generation && record.partner===app.selected)) &&
+      (!studio || (app.studio===st && cache===app.studioClones)) &&
+      (!drag || (app.studio===st && cache===st.dragTempClones));
+    let synchronous=true;
+    const notify=()=>{if(onReady && !synchronous && active())onReady();};
     const finish=(composed=true)=>{
-      if(cache.get(c)!==record)return;
-      if(tuned.length && !composed){
+      if(!active())return;
+      if(!composed){
         record.failed=true;
         record.pending=false;
         record.clone=null;
         app.diagnostics.render='Item adjustments unavailable; retaining previous private frame';
-        if(onReady)onReady();
+        notify();
         return;
       }
       try {
@@ -1277,7 +1387,7 @@
         record.clone=finalClone;
         record.pending=false;
         if(room) {
-          app.lastCompleteRoomFrames.set(c,{partner:app.selected,clone:finalClone});
+          app.lastCompleteRoomFrames.set(c,{partner:record.partner,clone:finalClone});
           if(tuned.length)app.atomicFrameSwaps++;
         }
         app.diagnostics.render=tuned.length?'private adjustments atomically composited':'private replica prepared; waiting for room draw';
@@ -1287,18 +1397,18 @@
         app.diagnostics.lastError='Private snapshot: '+String(err);
         record.clone=null;
       }
-      if(onReady)onReady();
+      notify();
     };
     const afterLoad=()=>{
-      if(cache.get(c)!==record)return;
+      if(!active())return;
       if(!tuned.length){finish();return;}
       let tries=0;
       const awaitSource=()=>{
-        if(cache.get(c)!==record)return;
+        if(!active())return;
         if(thumbnailCanvasReady(replica.Canvas)){
-          applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,(composed)=>{
-            if(cache.get(c)===record)finish(composed);
-          });
+          try{applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,(composed)=>{
+            if(active())finish(composed);
+          },active);}catch(err){app.diagnostics.lastError='Item tuning: '+String(err);finish(false);}
           return;
         }
         if(++tries<12)setTimeout(awaitSource,140+tries*70);
@@ -1307,13 +1417,17 @@
       setTimeout(awaitSource,90);
     };
     try {
-      const result=CharacterLoadCanvas(replica);
+      let result;
+      replicaLoadDepth++;
+      try{result=CharacterLoadCanvas(replica);}finally{replicaLoadDepth--;}
+
       if(result && typeof result.then==='function'){
         Promise.resolve(result).then(afterLoad).catch(e=>{
           app.diagnostics.lastError='Asynchronous canvas failed: '+String(e);
-          if(cache.get(c)===record)finish(false);
+          if(active())finish(false);
         });
       } else afterLoad();
+      synchronous=false;
       if(tuned.length)return fallback;
       return record.pending?replica:(record.clone||replica);
     }catch(err){
@@ -1329,7 +1443,7 @@
   // uses the changed pixels as a movable visual layer on the detached canvas.
   // BC's native layer-order/alpha APIs differ by build, so this intentionally
   // does not write AEE properties to public Items or claim native layer parity.
-  function applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,onDone) {
+  function applyPrivateItemTuning(c,replica,look,tuned,fit,braChest,pose,onDone,active=()=>true) {
     const width=replica.Canvas.width,height=replica.Canvas.height;
     if(!width||!height||width>2048||height>2048){onDone(false);return;}
     const raw=document.createElement('canvas');raw.width=width;raw.height=height;
@@ -1337,10 +1451,13 @@
     if(!rawCtx){onDone(false);return;}
     try {rawCtx.drawImage(replica.Canvas,0,0);}catch(_){onDone(false);return;}
     const originals=rawCtx.getImageData(0,0,width,height);
+    const target=rawCtx.createImageData(width,height);target.data.set(originals.data);
+    const layerData=rawCtx.createImageData(width,height);
     const overlays=[];
     const work=tuned.slice().sort((a,b)=>normalizeTune(a.tune).priority-normalizeTune(b.tune).priority);
     let nextIndex=0;
     const next=()=>{
+      if(!active()){perf.cancelledComposites++;return;}
       if(nextIndex>=work.length){
         if(overlays.length!==work.length){
           app.diagnostics.lastError='Item compositor: '+overlays.length+'/'+work.length+' adjusted layers were ready';
@@ -1351,6 +1468,7 @@
           const ctx=replica.Canvas.getContext('2d');
           if(ctx){
             ctx.clearRect(0,0,width,height);
+            rawCtx.putImageData(target,0,0);
             ctx.drawImage(raw,0,0);
             for(const entry of overlays){
               const t=entry.tune,b=entry.bounds;
@@ -1379,21 +1497,23 @@
         const layerOnly=t?normalizeTune({priority:t.priority,layerOffsets:t.layerOffsets}):null;
         return {group:x.group,asset:x.asset,color:x.color,...(x.use?{use:x.use}:{}),...(layerOnly?{tune:layerOnly}:{})};
       });
-      const cache=new WeakMap();let attempts=0;
+      const cache=new WeakMap();let attempts=0,done=false;
+      const advance=()=>{if(done)return;done=true;setTimeout(next,0);};
       const ready=()=>{
-        const base=getRenderClone(c,plain,cache,ready,fit,braChest,pose);
+        if(done)return;
+        if(!active()){done=true;perf.cancelledComposites++;return;}
+        // Poll only. Passing ready as the clone callback caused synchronous
+        // re-entry and duplicate extraction of the same layer.
+        const base=getRenderClone(c,plain,cache,null,fit,braChest,pose,active);
         if(base?.Canvas && thumbnailCanvasReady(base.Canvas)) {
           try{
             const baseCanvas=base.Canvas;
             const baseCtx=baseCanvas.getContext('2d',{willReadFrequently:true});
-            if(!baseCtx){next();return;}
+            if(!baseCtx){advance();return;}
             const reference=baseCtx.getImageData(0,0,width,height).data;
             const src=originals.data;
-            const target=rawCtx.getImageData(0,0,width,height);
-            const px=target.data;
-            const layer=document.createElement('canvas');layer.width=width;layer.height=height;
-            const lctx=layer.getContext('2d',{willReadFrequently:true});
-            const layerData=lctx.createImageData(width,height);const out=layerData.data;
+            const px=target.data;const out=layerData.data;out.fill(0);
+            perf.diffPasses++;
             let minX=width,minY=height,maxX=-1,maxY=-1;
             // Diff tolerance avoids spreading negligible antialiasing noise.
             for(let n=0;n<src.length;n+=4){
@@ -1404,20 +1524,18 @@
               minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
               for(let k=0;k<4;k++){out[n+k]=src[n+k];px[n+k]=reference[n+k];}
             }
-            if(maxX<minX||maxY<minY){next();return;}
+            if(maxX<minX||maxY<minY){advance();return;}
             // Keep the unedited base for subsequent groups; write the final
             // replacement onto the raw reference after extracting this layer.
-            rawCtx.putImageData(target,0,0);
-            lctx.putImageData(layerData,0,0);
             const bounds={x:minX,y:minY,w:maxX-minX+1,h:maxY-minY+1};
             const cropped=document.createElement('canvas');cropped.width=bounds.w;cropped.height=bounds.h;
-            cropped.getContext('2d').drawImage(layer,bounds.x,bounds.y,bounds.w,bounds.h,0,0,bounds.w,bounds.h);
+            cropped.getContext('2d').putImageData(layerData,-bounds.x,-bounds.y,bounds.x,bounds.y,bounds.w,bounds.h);
             overlays.push({canvas:cropped,bounds,tune:t});
           } catch(e) {app.diagnostics.lastError='Item diff: '+String(e);}
-          next();return;
+          advance();return;
         }
         if(++attempts<12)setTimeout(ready,110+attempts*75);
-        else next();
+        else advance();
       };
       ready();
     };
@@ -1481,9 +1599,11 @@
     if(app.studioResizeObserver){app.studioResizeObserver.disconnect();app.studioResizeObserver=null;}
     app.nativeThumbToken=(app.nativeThumbToken||0)+1;
     if(app.studio){app.studio.dragTempLook=null;app.studio.dragTempClones=null;}
+    cancelStudioArtwork();clearTimeout(app.studioLatePaint);clearTimeout(app.studioLatePaint2);
+    if(app.studioPaintFrame!=null){cancelAnimationFrame(app.studioPaintFrame);app.studioPaintFrame=null;}
     app.studio=null;app.studioClones=new WeakMap();app.studioFit=null;app.studioDrawTicket++;
-    if(app.studioPanel)app.studioPanel.style.display='none';
-    refreshView(); if(app.panel?.style.display!=='none')renderPanel();
+    if(app.studioPanel){app.studioPanel.style.display='none';app.studioPanel.replaceChildren();}
+    if(app.panel?.style.display!=='none')renderPanel();
   }
   const HISTORY_LIMIT=35;
   function studioSnapshot(st) {
@@ -1667,17 +1787,17 @@
     currentPartner();
     label(panel,'Private partner');
     makeSelect(panel,available.map(c=>[member(c),`${c.Name||member(c)} (#${member(c)})`]),app.selected,v=>{
-      app.selected=Number(v);app.editorSubject=0;saveSettings();refreshView();sendHello(app.selected,true);renderPanel();
+      stopCuddle();app.selected=Number(v);app.editorSubject=0;saveSettings();refreshView();sendHello(app.selected,true);renderPanel();
     });
     const partner=currentPartner(),pid=member(partner),peer=app.peers.get(pid);
     append(panel,node('div',peer?.enabled?('● Partner addon detected · '+(peer.version===VERSION?'Both on '+VERSION.replace('-beta','')+' · Viewing':'Partner version '+(peer.version||'unknown')+' (update both accounts)')):peer?'Partner disabled sharing':'Waiting for partner addon','pwr-badge'));
     checkbox(panel,'View private appearances (on my screen)',app.enabled,v=>{
-      app.enabled=v;saveSettings();refreshView();if(v)sendHello(pid,true);else syncSend(pid,{type:'DISABLED'});renderPanel();
+      app.enabled=v;if(!v)stopCuddle();saveSettings();refreshView();if(v)sendHello(pid,true);else syncSend(pid,{type:'DISABLED'});renderPanel();
     });
     checkbox(panel,'Freeze BC animation frames in my private view (faster)',app.freezePrivateAnimations,v=>{
       app.freezePrivateAnimations=v;saveSettings();refreshView();renderPanel();
     });
-    append(panel,node('p','While your private view is active, glowing effects, blinking and other game-driven appearance frames stay on the last saved private render. BC continues running normally; this does not block messages, permissions or public appearance changes.','pwr-help'));
+    append(panel,node('p','While your private view is active, glowing effects, blinking and other game-driven appearance frames stay on the last saved private render. When unfrozen, private animation rebuilds are limited to roughly 8 per second. BC continues running normally; this does not block messages, permissions or public appearance changes.','pwr-help'));
     append(panel,button('Refresh frozen character now',()=>{
       refreshView();setStatus('Private character snapshot refreshed.');
     },'pwr-secondary'));
@@ -1685,6 +1805,28 @@
       app.allowPartnerEdits=v;saveSettings();refreshView();sendHello(pid,true);renderPanel();
     });
     append(panel,node('div',`Mode: VIEWING · no active edits${app.studio?' (studio open separately)':''}`,'pwr-badge'));
+    append(panel,node('h3','Private pair pose · Cuddle (experimental)'));
+    const cuddleOn=cuddleActive(),q=app.cuddle;
+    const cuddleBox=node('div',undefined,'pwr-badge');append(panel,cuddleBox);
+    append(cuddleBox,node('p',cuddleOn?'Cuddle is active on this screen.':'Cuddle is off. Both clients can independently choose the same arrangement.','pwr-help'));
+    let moving=q?.moving||pid,side=q?.side||'left',distance=q?.distance??110,vertical=q?.vertical??28;
+    label(cuddleBox,'Character to move');
+    makeSelect(cuddleBox,[[member(me()),me()?.Name||'My character'],[pid,partner.Name||'Partner']],moving,v=>{moving=Number(v);});
+    label(cuddleBox,'Side of the other character');
+    makeSelect(cuddleBox,[['left','Left'],['right','Right']],side,v=>{side=v;});
+    const numberControl=(title,value,min,max,change)=>{
+      const row=node('label');row.textContent=title+' ';
+      const input=node('input');input.type='number';input.min=String(min);input.max=String(max);input.step='5';input.value=String(value);
+      input.style.width='85px';input.addEventListener('input',()=>change(Number(input.value)));append(row,input);append(cuddleBox,row);
+    };
+    numberControl('Spacing (smaller = closer)',distance,0,300,v=>{distance=v;});
+    numberControl('Vertical offset',vertical,-150,150,v=>{vertical=v;});
+    const cuddleButtons=node('div',undefined,'pwr-row');append(cuddleBox,cuddleButtons);
+    append(cuddleButtons,button(cuddleOn?'Apply cuddle position':'Start cuddle',()=>{
+      const ok=startCuddle(moving,side,distance,vertical);
+      setStatus(ok?'Cuddle enabled locally. Use the same character and offsets on the other client.':'Cuddle is unavailable for this pair.');renderPanel();
+    }),button('End cuddle',()=>{stopCuddle();requestRoomRedraw();setStatus('Normal room placement restored.');renderPanel();},'pwr-secondary'));
+    append(cuddleBox,node('p','Visual only: existing body poses and native draw order are kept. End cuddle before clicking an overlapping character or using Echo cuddle. No outfit or position packets are sent.','pwr-help'));
     append(panel,node('h3','Open wardrobe studio'));
     const targets=node('div',undefined,'pwr-row');
     const stylePartner=button(`Style ${partner.Name||'partner'}`,()=>beginStudio(pid),'');
@@ -1807,39 +1949,43 @@
       return thumbnailBox({x:box.x-dx,y:box.y-dy,width:box.width+2*dx,height:box.height+2*dy},W,H,ratio);
     }catch(_){return fallback();}
   }
+  let readyProbe=null;
   function thumbnailCanvasReady(source) {
     // BC can populate the Canvas asynchronously even when CharacterLoadCanvas
     // itself returns void. Don't mark a transparent frame as successfully drawn.
     try {
-      const probe=document.createElement('canvas');probe.width=36;probe.height=72;
+      const probe=readyProbe||(readyProbe=document.createElement('canvas'));
+      if(probe.width!==36||probe.height!==72){probe.width=36;probe.height=72;}
       const ctx=probe.getContext('2d',{willReadFrequently:true});
       if(!ctx||!ctx.getImageData)return true; // non-readable contexts: best effort
-      ctx.drawImage(source,0,0,36,72);
+      ctx.clearRect(0,0,36,72);ctx.drawImage(source,0,0,36,72);
       const pixels=ctx.getImageData(0,0,36,72).data;
       for(let i=3;i<pixels.length;i+=4)if(pixels[i]>4)return true;
       return false;
     }catch(_){return true;}
   }
-  function scheduleSelectedArtworkRefresh(st,c) {
-    const look=st.look, fit=st.fit, chest=st.braChest, pose=st.pose;
-    const valid=()=>app.studio===st && st.look===look && st.fit===fit && st.braChest===chest && st.pose===pose && !st.comparePublic && !st.dragTempLook;
-    clearTimeout(app.selectedArtworkTimer);
-    // A single late rebuild for a changed asset, not a loop on each frame.
-    // Tuned outfits already have their own asynchronous compositor.
-    if(!look.some(r=>hasGeometryTune(r.tune))) {
-      app.selectedArtworkTimer=setTimeout(()=>{
-        if(!valid())return;
-        const old=app.studioClones.get(c);
-        if(old?.pending)return;
-        app.studioClones.delete(c);
-        drawStudioCanvas();
-      },1100);
-    }
-    for(const delay of [250,800,1800,3000])setTimeout(()=>{
-      if(valid())drawStudioCanvas();
-    },delay);
+  let artworkTimers=[];
+  function cancelStudioArtwork(){
+    for(const id of artworkTimers)clearTimeout(id);artworkTimers=[];
+    clearTimeout(app.nativeSearchTimer);
   }
-  function drawStudioCanvas() {
+  function scheduleSelectedArtworkRefresh(st,c) {
+    for(const id of artworkTimers)clearTimeout(id);artworkTimers=[];
+    const look=st.look,fit=st.fit,chest=st.braChest,pose=st.pose;
+    const valid=()=>app.studio===st&&st.look===look&&st.fit===fit&&st.braChest===chest&&st.pose===pose&&!st.comparePublic&&!st.dragTempLook;
+    // Retain one late native-art retry for asynchronously loaded sprites.
+    if(!look.some(r=>hasGeometryTune(r.tune)))artworkTimers.push(setTimeout(()=>{
+      if(!valid())return;
+      const old=app.studioClones.get(c);if(old?.pending)return;
+      app.studioClones.delete(c);drawStudioCanvas();
+    },1100));
+    artworkTimers.push(setTimeout(()=>{if(valid())drawStudioCanvas();},1800));
+  }
+  function drawStudioCanvas(){
+    if(!app.studio||app.studioPaintFrame!=null)return;
+    app.studioPaintFrame=requestAnimationFrame(()=>{app.studioPaintFrame=null;paintStudioCanvas();});
+  }
+  function paintStudioCanvas() {
     const st=app.studio;if(!st||!app.studioPanel||app.studioPanel.style.display==='none')return;
     const scene=app.studioPanel.querySelector('.pwr-scene');
     const canvas=app.studioPanel.querySelector('.pwr-character-canvas');
@@ -1860,6 +2006,7 @@
       // FIXED character silhouette size in CSS pixels, independent of the
       // editor size. A smaller preview is scrollable instead of cropping.
       const b=visibleStudioBounds(source);
+      perf.studioPaints++;
       const visibleHeight=[320,380,460,540,640].includes(app.previewSize)?app.previewSize:380;
       const padding=12;
       const destW=visibleHeight*(b.width/b.height);
@@ -1893,6 +2040,7 @@
     app.nativeThumbCache=app.nativeThumbCache||new Map();
     const thumbToken=app.nativeThumbToken=(app.nativeThumbToken||0)+1;
     app.studioDrawTicket++;
+    const oldCanvas=root.querySelector('.pwr-character-canvas');
     root.replaceChildren();
     const shell=node('div',undefined,'pwr-shell'); root.appendChild(shell);
     const toolbar=node('div',undefined,'pwr-toolbar');shell.appendChild(toolbar);
@@ -1923,7 +2071,8 @@
     left.appendChild(previewBar);
     const scene=node('div',undefined,'pwr-scene');applyBackground(scene);left.appendChild(scene);
     const sceneInner=node('div',undefined,'pwr-scene-inner');scene.appendChild(sceneInner);
-    const canvas=node('canvas');canvas.className='pwr-character-canvas';canvas.width=500;canvas.height=1000;sceneInner.appendChild(canvas);
+    const canvas=oldCanvas||node('canvas');canvas.className='pwr-character-canvas';
+    if(!oldCanvas){canvas.width=500;canvas.height=1000;}sceneInner.appendChild(canvas);
     if(st.dragEnabled && app.nativeMode==='adjust') {
       const catcher=node('div',undefined,'pwr-drag-catcher');scene.appendChild(catcher);
       let start=null;
@@ -1992,8 +2141,7 @@
     const showMode=(name)=>{app.nativeMode=name;app.nativePage=0;renderStudio();};
     const recFor=g=>st.look.find(x=>x.group===g.Name);
     const sortedChoices=g=>{
-      const record=recFor(g),all=groupAssets(g).slice();
-      all.sort((a,b)=>String(a.Description||a.Name).localeCompare(String(b.Description||b.Name)));
+      const record=recFor(g),all=sortedGroupAssets(g);
       const equipped=record?all.find(a=>a.Name===record.asset):null;
       const choices=equipped?[equipped,...(g.AllowNone?[null]:[]),...all.filter(a=>a!==equipped)]:[...(g.AllowNone?[null]:[]),...all];
       return choices;
@@ -2050,7 +2198,7 @@
         const cycle=(delta)=>{
           // The gallery is equipped-first; arrows instead use a stable catalog
           // order so each arrow press reaches a genuinely different item.
-          const all=groupAssets(g).slice().sort((a,b)=>String(a.Description||a.Name).localeCompare(String(b.Description||b.Name)));
+          const all=sortedGroupAssets(g);
           const list=[...(g.AllowNone?[null]:[]),...all];
           if(!list.length)return;
           const i=list.findIndex(a=>(a?.Name||null)===(active?.asset||null));
@@ -2269,9 +2417,10 @@
     drawStudioCanvas();
     // Bounded late-art refresh; never tied to resizing or animation ticks.
     const ticket=app.studioDrawTicket;
-    for(const delay of [400,1200])setTimeout(()=>{
-      if(app.studio===st && app.studioDrawTicket===ticket && canvas.isConnected)drawStudioCanvas();
-    },delay);
+    clearTimeout(app.studioLatePaint);clearTimeout(app.studioLatePaint2);
+    const latePaint=()=>{if(app.studio===st && app.studioDrawTicket===ticket && canvas.isConnected)drawStudioCanvas();};
+    app.studioLatePaint=setTimeout(latePaint,500);
+    app.studioLatePaint2=setTimeout(latePaint,1200);
   }
 
   function applyLauncherPosition() {
@@ -2321,6 +2470,7 @@
   function heartbeat() {
     if(!app.ready)return;
     checkNetworkRoom();
+    if(app.cuddle)cuddleActive();
     for(const id of app.peers.keys())if(!eligible(id)){app.peers.delete(id);app.lastSent.delete(id);for(const subject of [member(me()),id])app.netReplays.delete(key(id,subject));}
     // Do not deserialize the full wardrobe every heartbeat; it can undo draft UI state.
     const ps=partners();
@@ -2351,6 +2501,7 @@
     // Window resize only changes CSS layout; fixed-size character pixels remain cached.
     globalThis.PawPrivateWardrobe = Object.freeze({
       version:VERSION,
+      performanceStatus(){return {version:VERSION,animatedCloneMinIntervalMs:125,...perf,privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,freezePrivateAnimations:app.freezePrivateAnimations,lastError:app.diagnostics.lastError};},
       networkStatus(){return {version:VERSION,connectedToRoom:!!networkRoom(),queuedParts:queuedParts(),queuedTransfers:app.netQueue.length,sendGapMs:SEND_GAP_MS,...app.netStats,sync:cloneJson(app.diagnostics.sync),lastRenderError:app.diagnostics.lastError};},
       assetPreviewStatus(group,assetName){
         const c=app.studio?findChar(app.studio.subject):me();
@@ -2385,6 +2536,8 @@
         const fit=draft?draft.fit:privateFit(c);
         return {...braFitInfo(c,look,fit,draft?draft.braChest:privateBraChest(c)),subject:member(c),editing:!!draft,privateOnly:true};
       },
+      cuddleStatus(){return {active:cuddleActive(),settings:app.cuddle?{...app.cuddle}:null,roomHookAvailable:app.roomDrawHookAvailable,roomDrawSeen:app.roomDrawHookSeen,frameHook:app.cuddleRunHook,draws:app.cuddleDraws,last:app.cuddleLast,localOnly:true};},
+      endCuddle(){stopCuddle();requestRoomRedraw();if(app.panel)renderPanel();},
       roomRenderStatus() {
         const p=currentPartner();
         return {version:VERSION,screen:typeof CurrentScreen!=='undefined'?CurrentScreen:'unknown',
@@ -2413,7 +2566,7 @@
         const checked=normalizeLook(c,look);
         return {version:VERSION,subject:sub,privateFit:app.studio?normalizeFit(app.studio.fit):privateFit(c),flatModeApplied:shouldUseFlatFeminine(c,app.studio?app.studio.fit:privateFit(c),appearanceFor(c,look,app.studio?app.studio.fit:privateFit(c))),flatBodyUpperAsset:smallestUpperBodyAsset(c,hasBraInAppearance(c?.Appearance))?.Name||null,publicItems:c?.Appearance?.length||0,appearanceGroups:assetGroups(c).filter(g=>g.Category==='Appearance').length,gearGroups:assetGroups(c).filter(g=>g.Category==='Item').length,catalogAssets:assetGroups(c).reduce((sum,g)=>sum+groupAssets(g).length,0),draftItems:look.length,validItems:checked.look?.length||0,skipped:checked.dropped,lastEditSkipped:app.diagnostics.lastEditSkipped,render:app.diagnostics.render,partnerDetected:!!p&&!!app.peers.get(member(p)),partnerVersion:app.peers.get(member(p))?.version||null,partnerAllowsEdits:app.peers.get(member(p))?.accept,hasCanvas:!!c?.Canvas,editing:!!app.studio,dirtyPreview:!!app.studio?.dirty,studioOverridesRoom:false,remoteChangedInStudio:!!app.studio?.remoteChanged,storedProfiles:Object.keys(app.profiles).filter(k=>k.startsWith(member(p)+':')).map(k=>({key:k,changed:app.profiles[k]?.changed,removed:!!app.profiles[k]?.removed,items:app.profiles[k]?.look?.length||0})),sync:cloneJson(app.diagnostics.sync),pendingPackets:app.packets.size,studioFit:app.studioFit?cloneJson(app.studioFit):null,previewSize:app.previewSize,studioLayout:app.studioLayout,privatePose:app.studio?normalizePrivatePose(app.studio.pose):(c?privatePose(c):'original'),freezePrivateAnimations:app.freezePrivateAnimations,privateCloneBuilds:app.privateCloneBuilds,privateCloneCacheHits:app.privateCloneCacheHits,frozenBaseRefreshes:app.frozenBaseRefreshes,pendingFrameReuses:app.pendingFrameReuses,atomicFrameSwaps:app.atomicFrameSwaps,launcherPosition:app.launcherPosition,thumbnailFocus:app.thumbnailFocus,savedOutfits:app.studio?savedOutfitsFor(app.studio).length:0,history:{undo:app.studio?.undo?.length||0,redo:app.studio?.redo?.length||0},favoriteCount:Object.keys(app.favorites).length,comparePublic:!!app.studio?.comparePublic,interactionGuard:isNativeInteractionOpen(),drawHook:{roomHookAvailable:app.roomDrawHookAvailable,roomHookSeen:app.roomDrawHookSeen,roomCalls:app.roomDrawCalls,privateCalls:app.privateDrawCalls,nativeSkips:app.nativeDrawSkips,canvasHookCalls:app.canvasHookCalls,privateCanvasCalls:app.privateCanvasCalls,canvasHookNames:app.canvasHookNames,nativeHookNames:app.nativeHookNames,nativeDrawScope:app.nativeDrawScope,renderReadyChecks:app.renderReadyChecks},savedLookActive:!!(c&&effectiveLook(c))};
       },
-      refresh(){refreshView();},
+      refresh(){registry=null;refreshView();if(app.studio){app.studioClones=new WeakMap();drawStudioCanvas();}},
       setFreezePrivateAnimations(enabled) {
         app.freezePrivateAnimations=!!enabled;saveSettings();refreshView();
         if(app.panel && app.panel.style.display!=='none')renderPanel();
@@ -2422,7 +2575,7 @@
       savedOutfits(){return app.studio?savedOutfitsFor(app.studio).map(x=>({id:x.id,name:x.name,savedAt:x.savedAt})):[];},
       resetLauncher(){app.launcherPosition=null;saveSettings();applyLauncherPosition();},
       // Emergency local-only switch, never changes public appearance.
-      disable(){const partner=currentPartner();app.enabled=false;closeStudio();saveSettings();refreshView();if(partner)syncSend(member(partner),{type:'DISABLED'});if(app.panel)renderPanel();},
+      disable(){const partner=currentPartner();stopCuddle();app.enabled=false;closeStudio();saveSettings();refreshView();if(partner)syncSend(member(partner),{type:'DISABLED'});if(app.panel)renderPanel();},
     });
     console.log(`[Paw Private Wardrobe] ${VERSION} initialized`);
   }
